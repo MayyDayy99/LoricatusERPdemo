@@ -25,7 +25,7 @@ export function DemoBanner() {
   return (
     <div className="pointer-events-auto fixed bottom-0 left-0 right-0 z-[9998] flex items-center justify-center gap-3 bg-amber-500/95 px-4 py-1.5 text-center text-[12px] font-medium text-amber-950 shadow-[0_-1px_6px_rgba(0,0,0,0.15)] backdrop-blur">
       <span>
-        🎭 <strong>DEMÓ</strong> — ez egy portfólió-bemutató. Nincs valódi backend, az adatok nem mentődnek (újratöltéskor visszaállnak).
+        🎭 <strong>DEMÓ</strong> — portfólió-bemutató. Az itt látható <strong>minden adat AI-generált és kitalált</strong> — semmilyen átfedés nincs a Loricatus valós adataival. Nincs valódi backend, az adatok nem mentődnek (újratöltéskor visszaállnak).
       </span>
       <button
         onClick={() => setDismissed(true)}
