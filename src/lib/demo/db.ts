@@ -57,6 +57,17 @@ export function buildSeed(): Store {
       email: 'info@loricatus.hu', phone: '+36 1 234 5678',
     },
     branding: { primaryColor: '#c8a24a', logoUrl: null },
+    // Demóban MINDEN modul be van kapcsolva, hogy a teljes sidebar látszódjon
+    // (a menüpontok requiredFeature-flaggel vannak kapuzva — pl. Projekt map =
+    // meetingEnabled).
+    featureFlags: {
+      notamEnabled: true, threeDEnabled: true, pdfAdvancedEnabled: true,
+      crmEnabled: true, crmWorkflowsEnabled: true, crmInvoicingEnabled: true,
+      crmExternalIntegrations: true, workOrdersEnabled: true, droneEnabled: true,
+      internalTasksEnabled: true, meetingEnabled: true, fieldReportsEnabled: true,
+      miniCrmImportEnabled: true, commissionEnabled: true,
+    },
+    metadata: { sidebarPoliciesByRole: {} },
   }];
 
   // ── Users / current user ─────────────────────────────────────────
