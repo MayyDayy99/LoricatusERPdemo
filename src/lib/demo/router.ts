@@ -54,6 +54,12 @@ function applyFilters(rows: Row[], query: URLSearchParams): Row[] {
   eq('status', query.get('status'));
   eq('stage', query.get('stage'));
   eq('userId', query.get('userId'));
+  // Szoba-szűrés a /rooms-hoz: a kliens a "Besorolatlan"-hoz a 'null' sztringet küldi.
+  const cat = query.get('categoryId');
+  if (cat != null && cat !== '') {
+    if (cat === 'null') out = out.filter((r) => r.categoryId == null);
+    else out = out.filter((r) => String(r.categoryId) === cat);
+  }
   const search = (query.get('search') ?? query.get('q') ?? '').toLowerCase();
   if (search) {
     out = out.filter((r) => JSON.stringify(r).toLowerCase().includes(search));
@@ -85,6 +91,11 @@ const special: Handler = (m, parts, query, body) => {
 
   // Tenant self-service
   if (path === 'tenants/me' && m === 'get') return ok(store.tenants[0]);
+  // Projekt-map task-típusok — a hook { taskTypes, isCustom } alakot vár.
+  if (path === 'tenants/me/task-types') {
+    if (m === 'put') store['tenants/me/task-types'] = body?.taskTypes ?? store['tenants/me/task-types'];
+    return ok({ taskTypes: store['tenants/me/task-types'] ?? [], isCustom: m !== 'delete' });
+  }
   if (path.startsWith('tenants/me/')) {
     const sub = path.replace('tenants/me/', '');
     if (m === 'get') return ok(store[`tenants/me/${sub}`] ?? store.tenants[0][sub] ?? {});
@@ -148,6 +159,20 @@ const special: Handler = (m, parts, query, body) => {
 
   // Customer-360 összegzés
   if (path.match(/^customers\/[^/]+\/summary$/) && m === 'get') return ok(customerSummary(parts[1]));
+
+  // Szoftver ↔ PC mátrix (Projekt map → admin → „Szoftver mátrix")
+  if (path === 'equipment/software-pc/list' && m === 'get') return ok(store['equipment/software-pc'] ?? []);
+  if (path === 'equipment/software-pc' && m === 'post') {
+    const list = store['equipment/software-pc'] ?? (store['equipment/software-pc'] = []);
+    if (body?.softwareId && body?.pcId && !list.some((l) => l.softwareId === body.softwareId && l.pcId === body.pcId)) {
+      list.push({ softwareId: body.softwareId, pcId: body.pcId });
+    }
+    return ok({ success: true });
+  }
+  if (parts[0] === 'equipment' && parts[1] === 'software-pc' && parts.length === 4 && m === 'delete') {
+    store['equipment/software-pc'] = (store['equipment/software-pc'] ?? []).filter((l) => !(l.softwareId === parts[2] && l.pcId === parts[3]));
+    return ok({ success: true });
+  }
 
   // PDF / file urls — demó-placeholder
   if (path.endsWith('/pdf') || path.endsWith('/pdf-url') || path.endsWith('/url') || path.endsWith('/download')) {
@@ -219,30 +244,41 @@ function meetingOverview(): any {
     role: u.role, roleType: u.roleType, avatarUrl: null, pcId: null,
   }));
   const projects = store.projects.map((p) => ({ ...p }));
+  // A Gantt-oszlopok a task-típusból színeződnek; a legenda ugyanezt a listát kapja.
+  const ttList = (store['tenants/me/task-types'] ?? []) as Row[];
+  const planTypes = ['drone', 'geodezia', 'feldolgozas', 'modellezes', 'qa', 'atadas', 'helyszin', 'egyeztetes'];
+  const ttLabel = (v: string): string => (ttList.find((t) => t.value === v)?.label as string) ?? v;
+  const firstPc = store.equipment.find((e) => e.category === 'pc')?.id ?? null;
   const tasks: Row[] = [];
   store.projects.forEach((p, pi) => {
     const n = 2 + (pi % 3);
+    let prevId: string | null = null;
     for (let k = 0; k < n; k++) {
-      const start = -6 + pi + k * 3;
+      const start = -6 + pi + k * 4;
+      const person = people[(pi + k) % people.length];
+      const tt = planTypes[(pi + k) % planTypes.length];
+      const id = nextId('plan');
+      const usesSoftware = tt === 'modellezes' || tt === 'feldolgozas';
       tasks.push({
-        id: nextId('plan'), tenantId: 'demo-tenant-0001',
+        id, tenantId: 'demo-tenant-0001',
         projectId: p.id, projectName: p.name,
-        title: `${p.name.split('—')[1]?.trim() ?? 'Feladat'} #${k + 1}`,
-        startDate: dayOff(start), endDate: dayOff(start + 2), duration: 2,
+        title: ttLabel(tt),
+        startDate: dayOff(start), endDate: dayOff(start + 3), duration: 3,
         status: pick(['pending', 'in_progress', 'completed'], k),
-        assignedTo: people[(pi + k) % people.length].id,
-        assignedToName: people[(pi + k) % people.length].name,
-        taskType: pick(['drone', 'processing', 'modeling'], k), lane: k,
-        equipmentIds: [], pilotIds: [], assigneeIds: [people[(pi + k) % people.length].id],
-        softwarePcIds: [], dependencies: [],
+        assignedTo: person.id, assignedToName: person.name,
+        taskType: tt, lane: k,
+        equipmentIds: [], pilotIds: [], assigneeIds: [person.id],
+        softwarePcIds: usesSoftware && firstPc ? [firstPc] : [],
+        ...(prevId ? { dependsOnId: prevId, dependencies: [prevId] } : { dependencies: [] }),
       });
+      prevId = id;
     }
   });
   const typeToCategory: Record<string, string> = { drone: 'drone', scanner: 'laser_scanner', total_station: 'total_station', camera: 'camera' };
   const equipment = store.equipment.map((e) => ({ ...e, category: e.category ?? typeToCategory[e.type] ?? 'misc' }));
   return {
     tasks, people, projects,
-    equipment, softwarePcs: [], softwarePc: [],
+    equipment, softwarePcs: [], softwarePc: store['equipment/software-pc'] ?? [],
     dayAnnotations: [], scheduledPings: [], vacations: [], leaves: [],
     from: dayOff(-30), to: dayOff(730),
   };

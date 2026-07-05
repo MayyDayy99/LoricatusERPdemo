@@ -127,28 +127,64 @@ export function buildSeed(): Store {
     createdAt: ts(-90 + i), updatedAt: ts(-i),
   }));
 
-  // ── Projects ─────────────────────────────────────────────────────
-  const projStates = ['planning', 'active', 'active', 'on_hold', 'completed'];
-  store.projects = Array.from({ length: 16 }).map((_, i) => ({
-    id: i < 3 ? `proj-${i + 1}` : nextId('proj'),
-    tenantId: T,
-    name: `${pick(CITIES, i)} — ${pick(['Homlokzat-felújítás', 'Drónos állapotrögzítés', 'BIM-modellezés', 'Belső felmérés', 'Tetőszerkezet'], i)}`,
-    code: `PRJ-2026-${String(i + 1).padStart(3, '0')}`,
-    state: pick(projStates, i), status: pick(projStates, i),
-    customerId: store.customers[i % store.customers.length].id,
-    customerName: store.customers[i % store.customers.length].name,
-    managerId: users[1 + (i % 4)].id,
-    categoryId: null,
-    budget: huf(2_000_000 + i * 850_000), currency: 'HUF',
-    progress: (i * 13) % 100,
-    startDate: day(-30 + i), endDate: day(15 + i * 3),
-    createdAt: ts(-40 + i), updatedAt: ts(-i),
-  }));
-  store['projects/categories'] = [
-    { id: 'cat-1', tenantId: T, name: 'Drónos felmérés', color: '#4f9d69', sortOrder: 0 },
-    { id: 'cat-2', tenantId: T, name: 'BIM-modellezés', color: '#c8a24a', sortOrder: 1 },
-    { id: 'cat-3', tenantId: T, name: 'Homlokzat', color: '#6b8cae', sortOrder: 2 },
+  // ── Rooms (projekt-kategóriák) ───────────────────────────────────
+  // A "Szobák" (/rooms) modul szobái = projekt-kategóriák. Minden szobának
+  // van típusa (a projekt-detail jobb sávját és a Projekt map szűrését vezérli)
+  // és showInProjectMap flag-je (az "Iroda" szoba pl. NEM jelenik meg a mapen).
+  const ROOMS: Array<{ id: string; name: string; color: string; icon: string; categoryType: string; showInProjectMap: boolean }> = [
+    { id: 'cat-drone',  name: 'Drónos felmérés',        color: '#4f9d69', icon: 'Plane',        categoryType: 'Implementation',    showInProjectMap: true },
+    { id: 'cat-bim',    name: 'BIM-modellezés',         color: '#c8a24a', icon: 'Building2',     categoryType: 'Implementation',    showInProjectMap: true },
+    { id: 'cat-facade', name: 'Homlokzat-felújítás',    color: '#6b8cae', icon: 'Building',      categoryType: 'ProjectManagement', showInProjectMap: true },
+    { id: 'cat-geo',    name: 'Geodézia & pontfelhő',   color: '#8b5cf6', icon: 'Wrench',        categoryType: 'Implementation',    showInProjectMap: true },
+    { id: 'cat-sales',  name: 'Értékesítés & ajánlat',  color: '#ec4899', icon: 'Briefcase',    categoryType: 'Sales',             showInProjectMap: true },
+    { id: 'cat-office', name: 'Iroda & adminisztráció', color: '#6b7280', icon: 'ClipboardList', categoryType: 'OfficeAdmin',       showInProjectMap: false },
   ];
+
+  // ── Projects (szobánként elosztva) ───────────────────────────────
+  const PROJECT_DEFS: Array<{ cat: string; name: string; state: string; desc: string }> = [
+    { cat: 'cat-drone',  name: 'Bartók udvar — drónos állapotfelmérés',    state: 'active',    desc: 'Homlokzat-ortofotó és tetőfelmérés drónnal, 1,5 cm GSD.' },
+    { cat: 'cat-drone',  name: 'Avas kilátó — negyedéves monitoring',      state: 'draft',     desc: 'Ismétlődő állapotrögzítés, repülési terv egyeztetés alatt.' },
+    { cat: 'cat-drone',  name: 'Tisza-part — támfal inspekció',            state: 'active',    desc: 'Vízparti támfal repedés-térképezése drónfotóból.' },
+    { cat: 'cat-bim',    name: 'Zsolnay negyed — BIM LOD300 modell',       state: 'active',    desc: 'Meglévő állapot BIM-modell Revitben, LOD300.' },
+    { cat: 'cat-bim',    name: 'Kastély keleti szárny — HBIM',             state: 'draft',     desc: 'Műemléki HBIM pontfelhőből, jóváhagyásra vár.' },
+    { cat: 'cat-bim',    name: 'Irodaház — MEP koordináció',               state: 'active',    desc: 'Gépészet-elektromos ütközésvizsgálat Navisworksben.' },
+    { cat: 'cat-facade', name: 'Klotild palota — homlokzat-restaurálás',   state: 'active',    desc: 'Díszes homlokzat felmérése és restaurálási terve.' },
+    { cat: 'cat-facade', name: 'Törökbálint — utólagos hőszigetelés',      state: 'draft',     desc: 'Társasházi homlokzati hőszigetelés tervezése.' },
+    { cat: 'cat-facade', name: 'Ároktői iskola — vakolatfelújítás',        state: 'completed', desc: 'Vakolatjavítás és festés, sikeresen átadva.' },
+    { cat: 'cat-geo',    name: 'Dombóvár belváros — digitális alaptérkép', state: 'active',    desc: 'Alaptérkép GNSS + mérőállomás bemérésből.' },
+    { cat: 'cat-geo',    name: 'Ipari csarnok — as-built pontfelhő',       state: 'active',    desc: 'Lézerszkennelt as-built, Cyclone regisztrációval.' },
+    { cat: 'cat-geo',    name: 'Közúti híd — deformáció-mérés',            state: 'completed', desc: 'Alapállapot-mérés a negyedéves mozgásvizsgálathoz.' },
+    { cat: 'cat-sales',  name: 'MATE Egyetem — keretszerződés ajánlat',    state: 'active',    desc: 'Campus-felmérési keretszerződés árajánlata.' },
+    { cat: 'cat-sales',  name: 'Városi drón-monitoring pályázat',          state: 'draft',     desc: 'Önkormányzati monitoring pályázati ajánlat.' },
+    { cat: 'cat-office', name: 'Eszközpark — éves kalibráció',             state: 'active',    desc: 'Drónok és szkennerek éves kalibrációja + adminisztráció.' },
+    { cat: 'cat-office', name: '2026 Q1 — pénzügyi zárás',                 state: 'archived',  desc: 'Negyedéves számlázás és zárás, lezárva.' },
+  ];
+  store.projects = PROJECT_DEFS.map((d, i) => {
+    const room = ROOMS.find((r) => r.id === d.cat)!;
+    const cust = store.customers[i % store.customers.length];
+    return {
+      id: i < 3 ? `proj-${i + 1}` : nextId('proj'),
+      tenantId: T,
+      name: d.name,
+      description: d.desc,
+      code: `PRJ-2026-${String(i + 1).padStart(3, '0')}`,
+      state: d.state, status: d.state,
+      categoryId: d.cat, categoryType: room.categoryType,
+      color: room.color, showInProjectMap: room.showInProjectMap,
+      customerId: cust.id, customerName: cust.name,
+      managerId: users[1 + (i % 4)].id,
+      budget: huf(2_000_000 + i * 850_000), currency: 'HUF',
+      progress: (i * 13) % 100,
+      startDate: day(-30 + i), endDate: day(20 + i * 4),
+      createdAt: ts(-40 + i), updatedAt: ts(-i),
+    };
+  });
+  store['projects/categories'] = ROOMS.map((r, i) => ({
+    id: r.id, tenantId: T, name: r.name, color: r.color, icon: r.icon,
+    sortIndex: i, sortOrder: i, categoryType: r.categoryType,
+    showInProjectMap: r.showInProjectMap,
+    projectCount: store.projects.filter((p) => p.categoryId === r.id).length,
+  }));
   store['projects/statuses'] = [
     { id: 'pst-1', tenantId: T, name: 'Tervezés', key: 'planning', color: '#6b8cae', sortOrder: 0 },
     { id: 'pst-2', tenantId: T, name: 'Aktív', key: 'active', color: '#4f9d69', sortOrder: 1 },
@@ -264,14 +300,39 @@ export function buildSeed(): Store {
 
   // ── CRM-tasks / internal-tasks / activities ──────────────────────
   const taskStatuses = ['pending', 'in_progress', 'completed', 'draft'];
-  store['crm-tasks'] = Array.from({ length: 26 }).map((_, i) => ({
-    id: nextId('task'), tenantId: T,
-    title: pick(['Ügyfél visszahívása', 'Ajánlat kiküldése', 'Helyszíni bejárás', 'Szerződés egyeztetés', 'Drón-repülés ütemezése'], i),
-    status: pick(taskStatuses, i), priority: pick(['low', 'medium', 'high'], i),
-    assignedTo: users[1 + (i % 4)].id, assignedToName: users[1 + (i % 4)].fullName,
-    customerId: store.customers[i % store.customers.length].id,
-    dueDate: day(-3 + (i % 12)), createdAt: ts(-8 + i),
-  }));
+  // Projektenként 2–4 teendő, PROJEKTHEZ KÖTVE (projectId) — így a szoba
+  // projekt-detail „Teendők" füle és a CRM feladatlista is megtelik.
+  const CRM_TASK_POOL: Array<{ title: string; taskType: string; est: number }> = [
+    { title: 'Helyszíni bejárás',               taskType: 'terep',       est: 180 },
+    { title: 'Drónrepülés ütemezése',           taskType: 'terep',       est: 120 },
+    { title: 'Pontfelhő regisztráció',          taskType: 'feldolgozas', est: 240 },
+    { title: 'Modell-egyeztetés megrendelővel', taskType: 'iroda',       est: 90 },
+    { title: 'Árajánlat összeállítása',         taskType: 'sales',       est: 120 },
+    { title: 'Riport véglegesítése',            taskType: 'iroda',       est: 150 },
+    { title: 'Számla kiállítása',               taskType: 'szamlazas',   est: 30 },
+    { title: 'Minőségellenőrzés',               taskType: 'feldolgozas', est: 120 },
+  ];
+  store['crm-tasks'] = [];
+  store.projects.forEach((p, pi) => {
+    const count = 2 + (pi % 3);
+    for (let k = 0; k < count; k++) {
+      const tp = CRM_TASK_POOL[(pi + k) % CRM_TASK_POOL.length];
+      const u = users[1 + ((pi + k) % 4)];
+      store['crm-tasks'].push({
+        id: nextId('task'), tenantId: T,
+        title: tp.title,
+        description: `${p.name} — ${tp.title.toLowerCase()}.`,
+        taskType: tp.taskType,
+        status: pick(taskStatuses, pi + k), priority: pick(['low', 'medium', 'high'], pi + k),
+        assignedTo: u.id, assignedToName: u.fullName,
+        customerId: p.customerId,
+        projectId: p.id, projectName: p.name,
+        startDate: day(-4 + k), dueDate: day(2 + k * 2 + (pi % 5)),
+        estimatedMinutes: tp.est,
+        createdAt: ts(-6 + pi),
+      });
+    }
+  });
   store['internal-tasks'] = Array.from({ length: 14 }).map((_, i) => ({
     id: nextId('itask'), tenantId: T,
     title: pick(['Eszköz-karbantartás', 'Riport összeállítás', 'Számlázás ellenőrzés', 'Csapat-meeting'], i),
@@ -319,13 +380,61 @@ export function buildSeed(): Store {
   }));
 
   // ── Equipment / subcontractors / drone ──────────────────────────
-  store.equipment = Array.from({ length: 10 }).map((_, i) => ({
-    id: nextId('eq'), tenantId: T,
-    name: pick(['DJI Mavic 3 Enterprise', 'Leica RTC360', 'GeoSLAM ZEB', 'Trimble X7', 'Faro Focus'], i),
-    type: pick(['drone', 'scanner', 'scanner', 'total_station'], i),
-    status: pick(['available', 'in_use', 'maintenance'], i),
-    serialNumber: `SN-${10000 + i}`, createdAt: ts(-60 + i),
-  }));
+  // Terepi eszközök + SZOFTVEREK + PC-k (a Projekt map admin „Szoftver mátrix"
+  // füle a category==='software' és category==='pc' eszközökből építi a mátrixot).
+  const FIELD_EQUIP: Array<{ name: string; type: string; category: string }> = [
+    { name: 'DJI Mavic 3 Enterprise', type: 'drone',         category: 'drone' },
+    { name: 'DJI Matrice 350 RTK',    type: 'drone',         category: 'drone' },
+    { name: 'Leica RTC360',           type: 'scanner',       category: 'laser_scanner' },
+    { name: 'Faro Focus Premium',     type: 'scanner',       category: 'laser_scanner' },
+    { name: 'Trimble X7',             type: 'scanner',       category: 'laser_scanner' },
+    { name: 'Leica TS16 mérőállomás', type: 'total_station', category: 'total_station' },
+    { name: 'Emlid Reach RS2+ GNSS',  type: 'gnss',          category: 'gnss_receiver' },
+  ];
+  const SOFTWARE: Array<{ id: string; name: string }> = [
+    { id: 'sw-revit',     name: 'Autodesk Revit 2025' },
+    { id: 'sw-recap',     name: 'Autodesk ReCap Pro' },
+    { id: 'sw-cyclone',   name: 'Leica Cyclone REGISTER 360' },
+    { id: 'sw-metashape', name: 'Agisoft Metashape Pro' },
+    { id: 'sw-pix4d',     name: 'Pix4Dmapper' },
+    { id: 'sw-navis',     name: 'Autodesk Navisworks' },
+    { id: 'sw-qgis',      name: 'QGIS' },
+  ];
+  const PCS: Array<{ id: string; name: string }> = [
+    { id: 'pc-ws01',    name: 'Workstation-01 (Ryzen 9 / RTX 4080)' },
+    { id: 'pc-ws02',    name: 'Workstation-02 (i9 / RTX 4090)' },
+    { id: 'pc-field01', name: 'Field-Laptop-01 (mobil)' },
+    { id: 'pc-render',  name: 'Render-Node-01' },
+  ];
+  store.equipment = [
+    ...FIELD_EQUIP.map((e, i) => ({
+      id: nextId('eq'), tenantId: T, name: e.name, type: e.type, category: e.category,
+      status: pick(['available', 'in_use', 'maintenance'], i),
+      serialNumber: `SN-${10000 + i}`, createdAt: ts(-60 + i),
+    })),
+    ...SOFTWARE.map((s, i) => ({
+      id: s.id, tenantId: T, name: s.name, type: 'software', category: 'software',
+      status: 'available', licenseSeats: 2 + (i % 4), createdAt: ts(-200 + i),
+    })),
+    ...PCS.map((pc, i) => ({
+      id: pc.id, tenantId: T, name: pc.name, type: 'pc', category: 'pc',
+      status: pick(['available', 'in_use'], i), createdAt: ts(-300 + i),
+    })),
+  ];
+  // Szoftver ↔ PC install-mátrix (Projekt map → admin → „Szoftver mátrix").
+  store['equipment/software-pc'] = [
+    { softwareId: 'sw-revit',     pcId: 'pc-ws01' },
+    { softwareId: 'sw-revit',     pcId: 'pc-ws02' },
+    { softwareId: 'sw-recap',     pcId: 'pc-ws01' },
+    { softwareId: 'sw-recap',     pcId: 'pc-ws02' },
+    { softwareId: 'sw-cyclone',   pcId: 'pc-ws02' },
+    { softwareId: 'sw-metashape', pcId: 'pc-ws01' },
+    { softwareId: 'sw-metashape', pcId: 'pc-render' },
+    { softwareId: 'sw-pix4d',     pcId: 'pc-render' },
+    { softwareId: 'sw-navis',     pcId: 'pc-ws02' },
+    { softwareId: 'sw-qgis',      pcId: 'pc-field01' },
+    { softwareId: 'sw-qgis',      pcId: 'pc-ws01' },
+  ];
   store.subcontractors = Array.from({ length: 8 }).map((_, i) => ({
     id: nextId('sub'), tenantId: T, name: pick(COMPANIES, i + 2),
     specialty: pick(['drónpilóta', 'BIM-modellező', 'geodéta', 'statikus'], i),
@@ -402,10 +511,19 @@ export function buildSeed(): Store {
     id: 'wh-1', tenantId: T, url: 'https://n8n.example.hu/webhook/demo',
     events: ['deal.won', 'invoice.paid'], isActive: true, secret: '••••••••', createdAt: ts(-30),
   }];
+  // Projekt map task-típusok — a hook a { value, label, color, sortIndex, icon,
+  // isUnassigned } sémát várja; ezek színezik a Gantt-oszlopokat és a legendet.
   store['tenants/me/task-types'] = [
-    { id: 'tt-1', name: 'Drónrepülés', color: '#4f9d69' },
-    { id: 'tt-2', name: 'Feldolgozás', color: '#c8a24a' },
-    { id: 'tt-3', name: 'Modellezés', color: '#6b8cae' },
+    { value: 'drone',       label: 'Drónrepülés',           color: '#4f9d69', sortIndex: 0, icon: '🚁' },
+    { value: 'feldolgozas', label: 'Pontfelhő-feldolgozás', color: '#0ea5e9', sortIndex: 1, icon: '🧩' },
+    { value: 'modellezes',  label: 'BIM-modellezés',        color: '#c8a24a', sortIndex: 2, icon: '🏗️' },
+    { value: 'geodezia',    label: 'Geodéziai bemérés',     color: '#8b5cf6', sortIndex: 3, icon: '📐' },
+    { value: 'helyszin',    label: 'Helyszíni bejárás',     color: '#f59e0b', sortIndex: 4, icon: '🥾' },
+    { value: 'egyeztetes',  label: 'Ügyfél-egyeztetés',     color: '#6366f1', sortIndex: 5, icon: '📞' },
+    { value: 'qa',          label: 'Minőségellenőrzés',     color: '#ef4444', sortIndex: 6, icon: '✅' },
+    { value: 'atadas',      label: 'Átadás-átvétel',        color: '#10b981', sortIndex: 7, icon: '📦' },
+    { value: 'szamlazas',   label: 'Számlázás',             color: '#64748b', sortIndex: 8, icon: '🧾', isUnassigned: true },
+    { value: 'gepido',      label: 'Gépidő (render)',       color: '#94a3b8', sortIndex: 9, icon: '⚙️', isUnassigned: true },
   ];
 
   return store;
