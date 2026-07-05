@@ -222,7 +222,13 @@ function dashboardKpis(): any {
     overdueTasksCount: store['crm-tasks'].filter((t) => t.status !== 'completed' && t.dueDate < today).length,
     pendingTasks: store['crm-tasks'].filter((t) => t.status === 'pending').length,
     pendingQuotesCount: store.quotes.filter((q) => q.state === 'sent').length,
-    revenueByMonth: Array.from({ length: 6 }).map((_, i) => ({ month: `2026-0${i + 1}`, value: 2_000_000 + i * 640_000 })),
+    // Évfüggetlen: az utolsó 6 hónap a mai hónapig (a látogatás napjához igazodva).
+    revenueByMonth: Array.from({ length: 6 }).map((_, i) => {
+      const d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() - (5 - i));
+      return { month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, value: 2_000_000 + i * 640_000 };
+    }),
     dealsByStage: ['lead', 'qualified', 'proposal_sent', 'negotiation', 'won', 'lost'].map((s) => ({
       stage: s, count: byStage(s).length, value: byStage(s).reduce((a, d) => a + d.value, 0),
     })),
