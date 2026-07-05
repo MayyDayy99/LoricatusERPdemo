@@ -3520,13 +3520,14 @@ function NewTaskModal({
         duration: form.duration,
         equipmentIds: form.equipmentIds.length > 0 ? form.equipmentIds : undefined,
       });
+      // Task-típushoz kötött vizuális visszajelzés (Projekt map task-típusok).
       if (form.taskType === 'szamlazas') {
         void import('@/lib/animations/money-rain').then(m => m.triggerMoneyRain());
-      } else if (form.taskType === 'terep') {
+      } else if (form.taskType === 'drone' || form.taskType === 'helyszin' || form.taskType === 'geodezia') {
         void import('@/lib/animations/drone-swarm').then(m => m.triggerDroneSwarm());
-      } else if (form.taskType === 'gepido') {
+      } else if (form.taskType === 'gepido' || form.taskType === 'feldolgozas' || form.taskType === 'modellezes') {
         void import('@/lib/animations/machine-time').then(m => m.triggerMachineTime());
-      } else if (form.taskType === 'iroda') {
+      } else if (form.taskType === 'egyeztetes' || form.taskType === 'atadas' || form.taskType === 'qa') {
         void import('@/lib/animations/office-workflow').then(m => m.triggerOfficeWorkflow());
       }
       try {
@@ -3570,13 +3571,14 @@ function NewTaskModal({
         duration: form.duration,
         equipmentIds: form.equipmentIds.length > 0 ? form.equipmentIds : undefined,
       });
+      // Task-típushoz kötött vizuális visszajelzés (Projekt map task-típusok).
       if (form.taskType === 'szamlazas') {
         void import('@/lib/animations/money-rain').then(m => m.triggerMoneyRain());
-      } else if (form.taskType === 'terep') {
+      } else if (form.taskType === 'drone' || form.taskType === 'helyszin' || form.taskType === 'geodezia') {
         void import('@/lib/animations/drone-swarm').then(m => m.triggerDroneSwarm());
-      } else if (form.taskType === 'gepido') {
+      } else if (form.taskType === 'gepido' || form.taskType === 'feldolgozas' || form.taskType === 'modellezes') {
         void import('@/lib/animations/machine-time').then(m => m.triggerMachineTime());
-      } else if (form.taskType === 'iroda') {
+      } else if (form.taskType === 'egyeztetes' || form.taskType === 'atadas' || form.taskType === 'qa') {
         void import('@/lib/animations/office-workflow').then(m => m.triggerOfficeWorkflow());
       }
       onSaved();
