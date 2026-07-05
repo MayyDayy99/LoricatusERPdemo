@@ -1,0 +1,241 @@
+{
+  "auth": {
+    "login": {
+      "title": "Bejelentkezés",
+      "email": "E-mail cím",
+      "emailPlaceholder": "pelda@ceg.hu",
+      "password": "Jelszó",
+      "submit": "Bejelentkezés",
+      "submitting": "Bejelentkezés…",
+      "success": "Sikeres bejelentkezés",
+      "error": "Hibás e-mail cím vagy jelszó",
+      "validation": {
+        "invalidEmail": "Érvénytelen e-mail cím",
+        "passwordRequired": "A jelszó megadása kötelező"
+      }
+    },
+    "twoFactor": {
+      "title": "Kétlépéses hitelesítés",
+      "description": "Add meg a hitelesítő alkalmazásban megjelenő 6 jegyű kódot.",
+      "codeLabel": "Hitelesítési kód",
+      "codePlaceholder": "000000",
+      "submit": "Ellenőrzés",
+      "submitting": "Ellenőrzés…",
+      "error": "Érvénytelen kód",
+      "back": "Vissza a bejelentkezéshez"
+    }
+  },
+  "dashboard": {
+    "title": "Irányítópult",
+    "subtitle": "Üdvözöljük a Construction SaaS platformon",
+    "recentProjects": "Legutóbbi projektek",
+    "noProjects": "Nincsenek projektek",
+    "noProjectsHint": "Hozza létre az első projektet a kezdéshez."
+  },
+  "projects": {
+    "title": "Projektek",
+    "totalCount": "{count} projekt",
+    "newProject": "Új projekt"
+  },
+  "locale": {
+    "hu": "Magyar",
+    "en": "English",
+    "it": "Italiano"
+  },
+  "setup": {
+    "platformTitle": "Construction SaaS Platform",
+    "enterpriseSetup": "Vállalati telepítési varázsló",
+    "steps": {
+      "health":     { "label": "Állapot ellenőrzés", "description": "Adatbázis, Redis és worker kapcsolat ellenőrzése" },
+      "admin":      { "label": "Admin fiók",          "description": "Kezdeti adminisztrátor felhasználó létrehozása" },
+      "tenant":     { "label": "Bérlő beállítása",   "description": "Szervezet konfigurálása" },
+      "api_keys":   { "label": "API kulcsok",         "description": "Integrációs API kulcsok megadása" },
+      "validation": { "label": "Ellenőrzés",          "description": "Összes integráció tesztelése" },
+      "activate":   { "label": "Aktiválás",           "description": "Platform aktiválása" }
+    },
+    "step1": {
+      "title":    "1. lépés: Állapot ellenőrzés",
+      "subtitle": "Ellenőrizze, hogy az infrastruktúra-szolgáltatások megfelelően működnek.",
+      "checks": {
+        "postgres": "PostgreSQL írási teszt",
+        "redis":    "Redis írási teszt",
+        "worker":   "Worker ping"
+      },
+      "button":        "Állapot ellenőrzés futtatása",
+      "buttonRunning": "Futtatás…",
+      "toast": {
+        "success": "Állapot ellenőrzés sikeres",
+        "error":   "Állapot ellenőrzés meghiúsult. Ellenőrizze az infrastruktúrát."
+      }
+    },
+    "step2": {
+      "title":    "2. lépés: Admin fiók létrehozása",
+      "subtitle": "Hozza létre a kezdeti platform adminisztrátort.",
+      "form": {
+        "firstName": "Keresztnév",
+        "lastName":  "Vezetéknév",
+        "email":     "E-mail",
+        "password":  "Jelszó (minimum 8 karakter)"
+      },
+      "button":        "Admin létrehozása és folytatás",
+      "buttonRunning": "Létrehozás…",
+      "toast": {
+        "success":    "Admin fiók létrehozva",
+        "error":      "Nem sikerült létrehozni az admint",
+        "validation": "E-mail és jelszó megadása kötelező"
+      }
+    },
+    "step6": {
+      "title":    "6. lépés: Platform aktiválása",
+      "subtitle": "Minden lépés kész. Aktiválja a platformot a kezdéshez.",
+      "info":     "Minden szükséges beállítási lépés elvégzésre került. Kattintson az Aktiválás gombra az élesítéshez.",
+      "button":        "Platform aktiválása",
+      "buttonRunning": "Aktiválás…",
+      "toast": {
+        "success": "Platform aktiválva! Átirányítás a bejelentkezéshez…",
+        "error":   "Az aktiválás meghiúsult"
+      }
+    },
+    "complete": {
+      "title":    "A platform készen áll",
+      "subtitle": "Átirányítás a bejelentkezési oldalra…"
+    }
+  },
+  "crm": {
+    "activities":       "Tevékenységek",
+    "logActivity":      "Tevékenység rögzítése",
+    "subject":          "Tárgy",
+    "occurredAt":       "Dátum",
+    "emptyActivities":  "Nincs rögzített tevékenység",
+    "activityCall":     "Hívás",
+    "activityEmail":    "E-mail",
+    "activityMeeting":  "Megbeszélés",
+    "activitySiteVisit":"Helyszíni szemle",
+    "activityNote":     "Megjegyzés",
+    "deals":            "Ügyletek",
+    "noAccess":         "Nincs hozzáférés",
+    "pipelines":        "Pipeline-ok",
+    "quotes":           "Árajánlatok",
+    "invoices":         "Számlák",
+    "tasks":            "Feladatok",
+    "newTask":          "Új feladat",
+    "newTaskTitle":     "Új feladat létrehozása",
+    "allTasks":         "Összes feladat",
+    "assignedTo":       "Felelős",
+    "markDone":         "Kész",
+    "marking":          "Jelölés…",
+    "emptyTasks":       "Nincs feladat",
+    "priorityHigh":     "Magas",
+    "priorityMedium":   "Közepes",
+    "priorityLow":      "Alacsony",
+    "kanbanStages": {
+      "lead":          "Lead",
+      "qualified":     "Minősített",
+      "proposal_sent": "Ajánlat elküldve",
+      "negotiation":   "Tárgyalás",
+      "won":           "Nyert",
+      "lost":          "Elveszített"
+    },
+    "dealTransitions": {
+      "qualify":        "Minősítés",
+      "send_proposal":  "Ajánlat küldése",
+      "negotiate":      "Tárgyalás",
+      "win":            "Nyerés",
+      "lose":           "Vesztés"
+    },
+    "quoteStates": {
+      "draft":    "Piszkozat",
+      "sent":     "Elküldve",
+      "accepted": "Elfogadva",
+      "rejected": "Visszautasítva",
+      "expired":  "Lejárt"
+    },
+    "invoiceStates": {
+      "draft":          "Piszkozat",
+      "issued":         "Kiállítva",
+      "sent":           "Elküldve",
+      "paid":           "Fizetve",
+      "partially_paid": "Részben fizetve",
+      "overdue":        "Lejárt",
+      "cancelled":      "Törölve",
+      "credited":       "Jóváírva"
+    }
+  },
+  "accounts": {
+    "title":         "Fiókok (B2B)",
+    "newBtn":        "Új fiók",
+    "newTitle":      "Új fiók",
+    "editTitle":     "Fiók szerkesztése",
+    "deleteTitle":   "Fiók törlése",
+    "empty":         "Nincs fiók",
+    "companyPh":     "Cégnév",
+    "industryPh":    "Iparág",
+    "websitePh":     "Weboldal",
+    "phonePh":       "Telefon",
+    "emailPh":       "Email",
+    "taxIdPh":       "Adószám",
+    "euTaxIdPh":     "EU adószám",
+    "filterAll":     "Összes",
+    "colCompany":    "Cégnév",
+    "colType":       "Típus",
+    "colIndustry":   "Iparág",
+    "colContact":    "Elérhetőség",
+    "colCreated":    "Létrehozva",
+    "colActions":    "Műveletek",
+    "typeProspect":  "Érdeklődő",
+    "typeCustomer":  "Ügyfél",
+    "typePartner":   "Partner",
+    "typeCompetitor":"Versenytárs"
+  },
+  "activities": {
+    "title":           "Tevékenységek",
+    "newBtn":          "Rögzítés",
+    "newTitle":        "Tevékenység rögzítése",
+    "editTitle":       "Tevékenység szerkesztése",
+    "deleteTitle":     "Tevékenység törlése",
+    "empty":           "Nincs megjeleníthető tevékenység",
+    "emptyInDeal":     "Nincs még tevékenység ehhez az ügylethez.",
+    "addInDealBtn":    "Új tevékenység",
+    "subjectPh":       "Tárgy",
+    "bodyPh":          "Tartalom / megjegyzés",
+    "searchPh":        "Keresés tárgy, tartalom, ügyfél alapján…",
+    "directionOutbound":"Kimenő",
+    "directionInbound": "Bejövő",
+    "durationPh":      "Időtartam (perc)",
+    "tabAll":          "Összes",
+    "tabProjectFeed":  "Projekt feed",
+    "groupByLabel":    "Csoportosítás:",
+    "groupTime":       "Időrendi",
+    "groupCustomer":   "Ügyfél",
+    "groupDeal":       "Ügylet",
+    "dealTabDetails":  "Részletek",
+    "dealTabActivities":"Tevékenységek"
+  },
+  "pipelineConfig": {
+    "title":           "Pipeline-konfiguráció",
+    "subtitle":        "Pipeline-ok és stage-ek admin-szintű szerkesztése.",
+    "newBtn":          "Új pipeline",
+    "newNamePh":       "Pipeline neve",
+    "defaultPipeline": "Alapértelmezett pipeline",
+    "emptyPipelines":  "Még nincs pipeline",
+    "firstPipeline":   "Első pipeline létrehozása",
+    "selectToEdit":    "Válassz egy pipeline-t a szerkesztéshez.",
+    "pipelineNameLabel":"Pipeline neve",
+    "makeDefault":     "Default-na teszem",
+    "stagesLabel":     "Stage-ek",
+    "newStage":        "Új stage",
+    "emptyStages":     "Még nincs stage — adj hozzá legalább egyet."
+  },
+  "sidebarCustomize": {
+    "title":           "Bal menü testreszabása",
+    "hint":            "Itt eltüntetheted vagy átrendezheted a menüpontokat. A változások csak a saját nézetedre vonatkoznak.",
+    "savingState":     "Mentés…",
+    "savedState":      "Mentve",
+    "workerHint":      "A te nézeted egyszerűsített, nincs testreszabás.",
+    "loadingState":    "Betöltés…",
+    "defaultClosed":   "(alapból zárva)",
+    "defaultOpen":     "(alapból nyitva)",
+    "keepClosed":      "Csukva tartom",
+    "resetToDefault":  "Visszaállítás default-ra"
+  }
+}

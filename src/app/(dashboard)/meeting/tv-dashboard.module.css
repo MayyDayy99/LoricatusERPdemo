@@ -1,0 +1,1256 @@
+/* Projekt map — light theme matching brand green app UI. */
+
+.root {
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+  --bg: #f9fafb;
+  --bg-elev: #ffffff;
+  --text: #111827;
+  --muted: #6b7280;
+  --dim: #9ca3af;
+  --today: #4d7c0f;
+  --today-bg: #f0fdf4;
+  --red: #dc2626;
+  --orange: #f97316;
+  --yellow: #d97706;
+  --green: #10b981;
+  --blue: #3b82f6;
+  --legter: #0284c7;
+
+  --day-w: 36px;
+  --lane-h: 42px;
+  --label-w: 220px;          /* a projekt-név sticky bal blokk szélessége */
+  --chevron-w: 32px;         /* dedikált chevron-oszlop a rowLabel után */
+  --left-w: calc(var(--label-w) + var(--chevron-w)); /* teljes sticky-bal sáv */
+
+  background: var(--bg);
+  color: var(--text);
+  height: calc(100vh - 72px);
+  overflow: hidden;
+  margin: -24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.root.fullscreen {
+  height: 100vh;
+  margin: 0;
+}
+
+/* Embedded mode — amikor a MeetingView egy szülő-konténer (pl. /rooms
+ * Gantt-tab) `flex-1 min-h-0` divében renderelődik, NEM full-viewport.
+ * A parent dictálja a méretet, és a (dashboard) layout main-padding-jét
+ * sem kell kompenzálni negative-margin-nal. */
+.root.embedded {
+  height: 100%;
+  margin: 0;
+}
+
+/* ── Header ── */
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  background: var(--bg-elev);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 16px;
+}
+.brand {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.brand:hover { color: var(--today); }
+.subtitle {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.clock {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--today);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.date { font-size: 11px; color: var(--muted); margin-top: 3px; text-align: right; }
+
+.switchBar { display: flex; align-items: center; gap: 6px; }
+.switchBtn {
+  padding: 6px 12px;
+  font-size: 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.switchBtn:hover { background: var(--bg); border-color: var(--border-strong); }
+.switchBtnPrimary {
+  background: var(--today);
+  border-color: var(--today);
+  color: #fff;
+}
+.switchBtnPrimary:hover { background: #3f6a08; border-color: #3f6a08; }
+
+/* ── Zoom controls ── */
+.zoomBar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.zoomBtn {
+  background: none;
+  border: none;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 4px;
+  font-family: inherit;
+}
+.zoomBtn:hover { background: var(--bg-elev); color: var(--text); }
+.zoomLabel { font-size: 10px; color: var(--muted); padding: 0 6px; min-width: 32px; text-align: center; }
+
+/* ── Gantt ── */
+.ganttWrap {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  min-height: 0;
+  background: var(--bg);
+}
+.gantt {
+  position: relative;
+  /* width: max-content so the inner block expands to fit the (very wide) rows + header,
+     instead of the rows visually overflowing a viewport-sized .gantt. The latter caused
+     position:sticky on .rowLabel to misbehave a few hundred px into the horizontal scroll
+     ("megakad júniusnál"). With max-content, .ganttWrap scrolls a single coherent box. */
+  width: max-content;
+  min-width: 100%;
+}
+
+.hdr {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg-elev);
+  box-shadow: 0 1px 0 var(--border);
+}
+.hdrRow {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+}
+.hdrCorner {
+  position: sticky;
+  left: 0;
+  z-index: 21;
+  background: var(--bg-elev);
+  width: var(--left-w);
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+}
+.monthCell {
+  flex-shrink: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-weight: 600;
+  border-right: 1px solid var(--border);
+  background: var(--bg);
+}
+.dayCell {
+  flex-shrink: 0;
+  width: var(--day-w);
+  height: 34px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--text);
+  border-right: 1px solid var(--border);
+  position: relative;
+  cursor: pointer;
+  background: none;
+  padding: 0;
+  font-family: inherit;
+  font-variant-numeric: tabular-nums;
+}
+.dayCell:hover { background: var(--bg); }
+.dayCell.weekend { color: var(--dim); background: rgba(0, 0, 0, 0.015); }
+.dayCell.today {
+  background: var(--today);
+  color: #fff;
+  font-weight: 700;
+}
+.dayCell.today:hover { background: #3f6a08; }
+.dow {
+  font-size: 8px;
+  color: var(--dim);
+  letter-spacing: 0.5px;
+  margin-bottom: 1px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.dayCell.today .dow { color: rgba(255, 255, 255, 0.75); }
+.annotationDot {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+}
+
+/* ── Rows ── */
+.row {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+  background: var(--bg-elev);
+}
+.rowLabel {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background: var(--bg-elev);
+  width: var(--label-w);
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 10px;
+  cursor: pointer;
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  border-top: none;
+  border-bottom: none;
+  transition: width 0.18s cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+}
+/* Hover-expand: ha hosszú a projekt neve, a label szélesedik, hogy
+   teljes neve látható legyen. Mouseleave-re automatikusan visszaugrik
+   az alapértelmezett szélességre. A z-index emelve, hogy átfedje
+   a gantt-sávokat (csak a hover-elt soron). A chevron-oszlop ettől
+   független sticky-elem, így nem mozog hover-en. */
+.rowLabel:hover {
+  background: var(--bg);
+  width: max-content;
+  min-width: var(--label-w);
+  max-width: 600px;
+  z-index: 12;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.06);
+}
+/* Drag-közbeni állapot: a húzott row-label halványítva, a többi marad. */
+.rowLabel.dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+.rowLabel[draggable="true"] {
+  cursor: grab;
+}
+/* Drop-target highlight: ha a húzott projekt egy másik sor fölé kerül,
+   az adott sor fluoreszkáló brand-szegéllyel jelzi a betűgödröt. */
+.rowLabel.dragOver {
+  box-shadow: 0 -3px 0 0 #6366f1 inset, 0 3px 0 0 #6366f1 inset;
+}
+/* Dedikált chevron-oszlop a rowLabel után, sticky pozícióval — fix
+   helyen marad akkor is, ha a rowLabel hover-expand-elt. Ha nincs
+   párhuzamos sáv a projektben, halvány disabled state. */
+.chevronColumn {
+  position: sticky;
+  left: var(--label-w);
+  /* magasabb z-index, mint a rowLabel hover-expand (12) — így a hover-elt
+     hosszú projektnév sem fedi le a chevron-t. */
+  z-index: 14;
+  background: var(--bg-elev);
+  width: var(--chevron-w);
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--muted);
+  border-top: none;
+  border-bottom: none;
+  padding: 0;
+  font-family: inherit;
+  transition: background 0.12s, color 0.12s;
+}
+.chevronColumn:hover:not(:disabled) {
+  background: var(--bg);
+  color: var(--text);
+}
+.chevronColumn.chevronDisabled,
+.chevronColumn:disabled {
+  opacity: 0.18;
+  cursor: not-allowed;
+}
+.rowLabel:hover .rowName {
+  text-overflow: clip;
+  overflow: visible;
+}
+.rowColor {
+  width: 4px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.rowName {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  color: var(--text);
+}
+
+.rowTracks {
+  position: relative;
+  flex-shrink: 0;
+  background: var(--bg-elev);
+}
+.laneGuide {
+  position: absolute;
+  left: 0;
+  right: 0;
+  border-top: 1px dashed rgba(77, 124, 15, 0.24);
+  pointer-events: none;
+  z-index: 2;
+}
+.laneGuideActive {
+  background: rgba(77, 124, 15, 0.08);
+  border-top-color: rgba(77, 124, 15, 0.55);
+  box-shadow: inset 0 0 0 1px rgba(77, 124, 15, 0.16);
+}
+/* Rejtett task hely-jelölő — collapsed projekt párhuzamos sávjaiban lévő
+   task-ok időintervallumán, a látható (0.) sáv aljához igazítva. Vizuális
+   emlékeztető, hogy ha kinyitja a sávokat, hol lesz párhuzamos task. A
+   háttér-szín inline (task-type alapján) jön, a magasság / pozíció innen. */
+.hiddenTaskHint {
+  position: absolute;
+  height: 3px;
+  border-radius: 1.5px;
+  pointer-events: auto;
+  z-index: 1;
+  opacity: 0.85;
+}
+.hiddenTaskHint:hover {
+  opacity: 1;
+  height: 5px;
+  margin-top: -1px;
+}
+.colBg {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: var(--day-w);
+  border-right: 1px solid var(--border);
+  pointer-events: none;
+}
+.colBg.weekend { background: rgba(0, 0, 0, 0.02); }
+.colBg.today { background: rgba(77, 124, 15, 0.08); }
+.colBg.munkaszunet {
+  background: rgba(0, 0, 0, 0.04);
+  background-image: repeating-linear-gradient(-45deg, transparent, transparent 4px, rgba(0, 0, 0, 0.04) 4px, rgba(0, 0, 0, 0.04) 8px);
+}
+
+/* Past — múlt napok: enyhe piros csíkozás, hogy látható legyen "az idő elmúlt".
+   A weekend/today felülírható ezekre a napokra is. */
+.colBg.past {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 6px,
+    rgba(220, 38, 38, 0.06) 6px,
+    rgba(220, 38, 38, 0.06) 8px
+  );
+}
+.colBg.past.weekend {
+  background-color: rgba(0, 0, 0, 0.02);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 6px,
+    rgba(220, 38, 38, 0.06) 6px,
+    rgba(220, 38, 38, 0.06) 8px
+  );
+}
+
+/* Hatarido (project deadline) — thick red right edge.
+   Purely visual: no logic side-effect, just catches the eye. */
+.colBg.hatarido {
+  border-right: 4px solid var(--red);
+  box-shadow: inset -6px 0 12px -6px rgba(220, 38, 38, 0.35);
+}
+.dayCell.hatarido {
+  border-right: 4px solid var(--red);
+}
+.dayCell.hatarido::after {
+  content: '';
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--red);
+  box-shadow: 0 0 8px rgba(220, 38, 38, 0.6);
+  pointer-events: none;
+}
+
+/* Légtér permit start/end — the airspace counterpart of hatarido, in blue.
+   Marks ONLY the start and end day of an authorisation window; the days in
+   between stay clean by design. */
+.colBg.legterStart {
+  border-left: 4px solid var(--legter);
+  box-shadow: inset 6px 0 12px -6px rgba(2, 132, 199, 0.35);
+}
+.colBg.legterEnd {
+  border-right: 4px solid var(--legter);
+  box-shadow: inset -6px 0 12px -6px rgba(2, 132, 199, 0.35);
+}
+.dayCell.legterStart {
+  border-left: 4px solid var(--legter);
+}
+.dayCell.legterEnd {
+  border-right: 4px solid var(--legter);
+}
+.dayCell.legterStart::before,
+.dayCell.legterEnd::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--legter);
+  box-shadow: 0 0 8px rgba(2, 132, 199, 0.6);
+  pointer-events: none;
+}
+.dayCell.legterStart::before { left: -2px; }
+.dayCell.legterEnd::after    { right: -2px; }
+
+/* ── Task bar ── */
+.task {
+  position: absolute;
+  height: calc(var(--lane-h) - 12px);
+  border-radius: 6px;
+  /* padding-left: 26px hogy a `position: absolute` avatar (left:-6px, 20px
+     széles) ne fedje a cím helyét. Jobb-padding 8px változatlan. */
+  padding: 0 8px 0 26px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  /* overflow: visible — a felelős kezdőbetűje (avatar-kör) szűk cellákon
+     (fél-napos, 1-napos task) kilóghat a cella szélén, hogy mindig teljesen
+     látható legyen. A `.taskTitle`-on a saját overflow: hidden megőrzi,
+     hogy a szöveg ne lóghasson ki. */
+  overflow: visible;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  /* Megjegyzés: a `transform`-ot az inline style adja (drag-translate +
+   * lane-lift), itt csak box-shadow-transitiont csinálunk. A `:hover` scale
+   * effektet szándékosan elhagytuk, mert ütközne az inline transformmal.
+   * Vizuális feedback marad: box-shadow + cursor + (dragging) outline. */
+  transition: box-shadow 0.15s;
+  border: none;
+  font-family: inherit;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+.task:hover { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18); z-index: 5; }
+.task.dragging {
+  z-index: 30;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24), 0 0 0 2px rgba(255, 255, 255, 0.9);
+}
+.task.pushed {
+  z-index: 4;
+  box-shadow: 0 5px 14px rgba(15, 23, 42, 0.18), 0 0 0 1px rgba(255, 255, 255, 0.55);
+}
+.task.slipping {
+  background: var(--red) !important;
+  animation: slidePush 2s ease-in-out infinite;
+}
+.task.done {
+  opacity: 0.4;
+  filter: grayscale(0.6);
+}
+.task.danger {
+  animation: flashWarn 1.2s ease-in-out infinite;
+}
+/* Draft / PISZKOZAT — árazógép-importból, még nem véglegesített.
+ * Szaggatott keret + halvány bg, nem csúszik. A user a Map-en
+ * "véglegesít" gombbal aktívvá teszi. */
+.task.draft {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(156, 163, 175, 0.20) 0px,
+    rgba(156, 163, 175, 0.20) 6px,
+    rgba(156, 163, 175, 0.08) 6px,
+    rgba(156, 163, 175, 0.08) 12px
+  ) !important;
+  border: 2px dashed rgba(107, 114, 128, 0.6) !important;
+  opacity: 0.85;
+}
+.task.draft::after {
+  content: 'PISZKOZAT';
+  position: absolute;
+  bottom: calc(100% + 2px); left: 0;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: rgba(75, 85, 99, 0.8);
+  background: rgba(255, 255, 255, 0.9);
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+@keyframes slidePush {
+  0%, 100% { box-shadow: -2px 0 8px rgba(220, 38, 38, 0.5); }
+  50% { box-shadow: -4px 0 14px rgba(220, 38, 38, 0.8); }
+}
+@keyframes flashWarn {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7); }
+  50% { box-shadow: 0 0 0 3px rgba(220, 38, 38, 0); outline: 2px solid var(--red); }
+}
+
+.taskAvatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #000;
+  font-weight: 700;
+  flex-shrink: 0;
+  /* `position: absolute` és `left: -6px` — a cella balszélén kívülre kerül,
+     hogy fél-napos task-okon is teljes egészében látható legyen a kezdőbetű.
+     A `.task`-on `padding-left: 26px` gondoskodik, hogy a cím nem fedje. */
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9);
+  overflow: hidden;
+}
+/* Az avatar két layert tartalmaz: a kezdőbetűt és egy hover-megjelenő
+   zöld pipát. Hoverre a pipa fade-be jön, a kezdőbetű fade-out — kattintásra
+   a task késznek jelölődik (gyors quick-action a teljes Projekt Map-en). */
+.taskAvatarInitial {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  transition: opacity 0.12s;
+}
+.taskAvatarCheck {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #16a34a;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 900;
+  border-radius: inherit;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+.taskAvatarClickable {
+  cursor: pointer;
+}
+.taskAvatarClickable:hover .taskAvatarInitial { opacity: 0; }
+.taskAvatarClickable:hover .taskAvatarCheck   { opacity: 1; }
+.taskAvatarClickable:hover {
+  box-shadow: 0 0 0 1.5px #16a34a, 0 0 6px rgba(22, 163, 74, 0.4);
+}
+.taskTitle {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.warnIcon {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 800;
+  background: rgba(255, 255, 255, 0.9);
+  color: #d97706;
+  margin-left: auto;
+}
+.resizeHandle {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 3;
+  opacity: 0.32;
+  transition: opacity 0.15s, background 0.15s;
+}
+.resizeHandle::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  right: 3px;
+  width: 2px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.78);
+}
+.task:hover .resizeHandle,
+.resizeHandle.activeResizeHandle {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+/* ── Modal ── */
+.modalBg {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.5);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.modal {
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px 26px;
+  width: 480px;
+  max-width: 92%;
+  max-height: 90vh;
+  overflow: auto;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+.modalHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 18px;
+  gap: 12px;
+}
+.modalTitle { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.modalSub {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.closeBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--dim);
+  font-size: 22px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.closeBtn:hover { color: var(--text); background: var(--bg); }
+
+.formRow { margin-bottom: 14px; }
+.formLabel {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+  font-weight: 500;
+}
+.formInput, .formSelect {
+  width: 100%;
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 9px 11px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  transition: border 0.15s, box-shadow 0.15s;
+}
+.formInput:focus, .formSelect:focus {
+  outline: none;
+  border-color: var(--today);
+  box-shadow: 0 0 0 3px rgba(77, 124, 15, 0.15);
+}
+.formRowInline { display: flex; gap: 10px; }
+.formRowInline > * { flex: 1; }
+
+.chipList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip {
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-elev);
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+.chip:hover { border-color: var(--border-strong); }
+.chip.on {
+  background: var(--today);
+  color: #fff;
+  border-color: var(--today);
+}
+
+.saveBtn {
+  width: 100%;
+  padding: 10px;
+  background: var(--today);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  margin-top: 8px;
+  transition: background 0.15s;
+}
+.saveBtn:hover { background: #3f6a08; }
+.saveBtn:disabled { opacity: 0.5; cursor: default; }
+
+.deleteBtn {
+  width: 100%;
+  padding: 9px;
+  background: transparent;
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 8px;
+  color: var(--red);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  margin-top: 8px;
+  transition: background 0.15s;
+}
+.deleteBtn:hover { background: rgba(220, 38, 38, 0.06); }
+
+.warningsBox {
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+}
+.warningsTitle {
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: var(--yellow);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.warningItem {
+  font-size: 12px;
+  color: #92400e;
+  padding: 3px 0;
+}
+.warningItem::before {
+  content: "⚠ ";
+}
+
+/* ── Legend ── */
+.legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  /* padding-right reserves space for the floating action buttons (Új task / Új projekt)
+     so the navigation hint doesn't end up underneath them. */
+  padding: 10px 320px 10px 24px;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+  align-items: center;
+}
+.legendItem { display: flex; align-items: center; gap: 6px; font-weight: 500; }
+.legendDot { width: 10px; height: 10px; border-radius: 50%; }
+.todayBtn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.todayBtn:hover {
+  background: var(--brand-50, #eef2ff);
+  border-color: var(--brand-500, #6366f1);
+  color: var(--brand-700, #4338ca);
+}
+
+/* ── Bottom-up "Ma ki mit csinál" panel ── */
+.bottomPanel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 50vh;
+  max-height: 600px;
+  min-height: 320px;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.08);
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+}
+.bottomPanel.open { transform: translateY(0); }
+.bottomPanelHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+  flex-shrink: 0;
+}
+.bottomPanelTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.bottomPanelSub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.bottomPanelClose {
+  background: none;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+}
+.bottomPanelClose:hover { background: var(--bg); color: var(--text); }
+.bottomPanelContent {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px;
+}
+.bottomPanelSection {
+  margin-bottom: 18px;
+}
+.bottomPanelSection:last-child { margin-bottom: 0; }
+.bottomPanelSectionTitle {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bottomPanelPersonRow {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.bottomPanelPersonRow:last-child { border-bottom: none; }
+.bottomPanelTaskList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.bottomPanelTaskItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text);
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--bg);
+}
+.bottomPanelProjectChip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bottomPanelEmpty {
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted);
+  font-style: italic;
+}
+
+/* ── Side panel ── */
+.sidePanel {
+  position: absolute;
+  top: 60px;
+  right: 0;
+  bottom: 0;
+  width: 320px;
+  background: var(--bg-elev);
+  border-left: 1px solid var(--border);
+  padding: 18px 20px;
+  overflow-y: auto;
+  z-index: 30;
+  transform: translateX(100%);
+  transition: transform 0.3s;
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.05);
+}
+.sidePanel.open { transform: translateX(0); }
+.sideTitle {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--muted);
+  text-transform: uppercase;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.sideSection { margin-bottom: 24px; }
+.personItem, .eqItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.personAvatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.eqStatus {
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  margin-left: auto;
+}
+.eqTypeLabel {
+  font-size: 9px;
+  padding: 3px 5px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-weight: 700;
+  min-width: 36px;
+  text-align: center;
+  color: var(--muted);
+}
+
+/* ── FAB (+ project) ── */
+.fab {
+  position: absolute;
+  bottom: 48px;
+  right: 24px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+}
+.fabBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 18px;
+  background: var(--today);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: 0 6px 16px rgba(77, 124, 15, 0.35);
+  transition: transform 0.15s;
+}
+.fabBtn:hover { transform: translateY(-1px); }
+.fabBtnSecondary {
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+.fabBtnSecondary:hover { background: var(--bg); }
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  color: var(--muted);
+  font-size: 13px;
+  gap: 8px;
+}
+
+/* ── Weather header row ─────────────────────────────────── */
+.weatherCell {
+  flex-shrink: 0;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid var(--border);
+  background: var(--bg-elev);
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+.weatherCell:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+.weatherCellWeekend { background: rgba(0, 0, 0, 0.015); }
+.weatherCellCaution {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.08);
+}
+.weatherCellCaution:hover { background: rgba(245, 158, 11, 0.16); }
+.weatherCellDanger {
+  color: #b91c1c;
+  background: rgba(220, 38, 38, 0.10);
+}
+.weatherCellDanger:hover { background: rgba(220, 38, 38, 0.18); }
+
+/* ── Weather day modal ──────────────────────────────────── */
+.weatherSummary {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px 16px;
+  align-items: center;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 18px;
+}
+.weatherIconLarge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 12px;
+  background: var(--bg-elev);
+  color: var(--text);
+}
+.weatherStatList {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 18px;
+  font-size: 12px;
+}
+.weatherStatLabel { color: var(--muted); }
+.weatherStatValue { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.hourlyGrid {
+  display: grid;
+  grid-template-columns: repeat(24, 1fr);
+  gap: 4px;
+  margin-bottom: 18px;
+}
+.hourlyCell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 0 9px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--bg);
+  border-radius: 6px;
+  gap: 4px;
+}
+.hourlyHour { font-weight: 700; color: var(--text); font-size: 12px; }
+.hourlyTemp { color: var(--text); font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 600; }
+
+.droneRiskList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.droneRiskItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.droneRiskBadge {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.droneRiskBadgeSafe    { background: #10b981; }
+.droneRiskBadgeCaution { background: #f59e0b; }
+.droneRiskBadgeDanger  { background: #ef4444; }
+.droneRiskTitle { font-weight: 600; color: var(--text); }
+.droneRiskMeta  { color: var(--muted); font-size: 11px; margin-top: 2px; }
+.droneRiskEmpty {
+  padding: 14px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+
+.sectionTitle {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+  margin: 18px 0 10px;
+}
+
+/* ── WorkPlan view (DayModal "Ki mit csinál" tab) ──────────── */
+.workPlanView {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.workPlanSummary {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg);
+  padding: 10px 14px;
+  border-radius: 8px;
+}
+.workPlanEmpty {
+  text-align: center;
+  padding: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+.workPlanSection { display: flex; flex-direction: column; gap: 6px; }
+.workPlanSectionTitle {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.3px;
+  margin-bottom: 4px;
+}
+.workPlanPersonRow {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-radius: 8px;
+}
+.workPlanTaskList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.workPlanTaskItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 8px;
+  background: var(--bg-elev);
+  border-radius: 6px;
+}
+.workPlanProjectChip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

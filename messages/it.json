@@ -1,0 +1,241 @@
+{
+  "auth": {
+    "login": {
+      "title": "Accedi al tuo account",
+      "email": "Indirizzo email",
+      "emailPlaceholder": "tu@azienda.it",
+      "password": "Password",
+      "submit": "Accedi",
+      "submitting": "Accesso in corso…",
+      "success": "Accesso effettuato",
+      "error": "Email o password non valida",
+      "validation": {
+        "invalidEmail": "Indirizzo email non valido",
+        "passwordRequired": "La password è obbligatoria"
+      }
+    },
+    "twoFactor": {
+      "title": "Autenticazione a due fattori",
+      "description": "Inserisci il codice a 6 cifre dall'app di autenticazione.",
+      "codeLabel": "Codice di autenticazione",
+      "codePlaceholder": "000000",
+      "submit": "Verifica",
+      "submitting": "Verifica in corso…",
+      "error": "Codice non valido",
+      "back": "Torna al login"
+    }
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "Benvenuto nella piattaforma Construction SaaS",
+    "recentProjects": "Progetti recenti",
+    "noProjects": "Nessun progetto",
+    "noProjectsHint": "Crea il tuo primo progetto per iniziare."
+  },
+  "projects": {
+    "title": "Progetti",
+    "totalCount": "{count} progetti",
+    "newProject": "Nuovo progetto"
+  },
+  "locale": {
+    "hu": "Magyar",
+    "en": "English",
+    "it": "Italiano"
+  },
+  "setup": {
+    "platformTitle": "Construction SaaS Platform",
+    "enterpriseSetup": "Procedura guidata di installazione",
+    "steps": {
+      "health":     { "label": "Controllo stato",    "description": "Verifica connettività database, Redis e worker" },
+      "admin":      { "label": "Account admin",      "description": "Crea l'utente amministratore iniziale" },
+      "tenant":     { "label": "Configurazione",     "description": "Configura la tua organizzazione" },
+      "api_keys":   { "label": "Chiavi API",         "description": "Inserisci le chiavi API di integrazione" },
+      "validation": { "label": "Validazione",        "description": "Test smoke di tutte le integrazioni" },
+      "activate":   { "label": "Attiva",             "description": "Attiva la piattaforma" }
+    },
+    "step1": {
+      "title":    "Passo 1: Controllo stato",
+      "subtitle": "Verifica che tutti i servizi infrastrutturali siano in esecuzione.",
+      "checks": {
+        "postgres": "Test scrittura PostgreSQL",
+        "redis":    "Test scrittura Redis",
+        "worker":   "Ping worker"
+      },
+      "button":        "Esegui controllo stato",
+      "buttonRunning": "In esecuzione…",
+      "toast": {
+        "success": "Controllo stato superato",
+        "error":   "Controllo stato fallito. Controlla la tua infrastruttura."
+      }
+    },
+    "step2": {
+      "title":    "Passo 2: Crea account admin",
+      "subtitle": "Crea l'amministratore iniziale della piattaforma.",
+      "form": {
+        "firstName": "Nome",
+        "lastName":  "Cognome",
+        "email":     "Email",
+        "password":  "Password (min 8 caratteri)"
+      },
+      "button":        "Crea admin e continua",
+      "buttonRunning": "Creazione…",
+      "toast": {
+        "success":    "Account admin creato",
+        "error":      "Impossibile creare l'admin",
+        "validation": "Email e password sono obbligatorie"
+      }
+    },
+    "step6": {
+      "title":    "Passo 6: Attiva piattaforma",
+      "subtitle": "Tutti i passi completati. Attiva la piattaforma per iniziare.",
+      "info":     "Tutti i passaggi di configurazione richiesti sono stati completati. Clicca Attiva per andare live.",
+      "button":        "Attiva piattaforma",
+      "buttonRunning": "Attivazione…",
+      "toast": {
+        "success": "Piattaforma attivata! Reindirizzamento al login…",
+        "error":   "Attivazione fallita"
+      }
+    },
+    "complete": {
+      "title":    "Piattaforma pronta",
+      "subtitle": "Reindirizzamento al login…"
+    }
+  },
+  "crm": {
+    "activities":       "Attività",
+    "logActivity":      "Registra attività",
+    "subject":          "Oggetto",
+    "occurredAt":       "Data",
+    "emptyActivities":  "Nessuna attività registrata",
+    "activityCall":     "Chiamata",
+    "activityEmail":    "Email",
+    "activityMeeting":  "Riunione",
+    "activitySiteVisit":"Visita in loco",
+    "activityNote":     "Nota",
+    "deals":            "Trattative",
+    "noAccess":         "Nessun accesso",
+    "pipelines":        "Pipeline",
+    "quotes":           "Preventivi",
+    "invoices":         "Fatture",
+    "tasks":            "Attività",
+    "newTask":          "Nuovo compito",
+    "newTaskTitle":     "Crea nuovo compito",
+    "allTasks":         "Tutti i compiti",
+    "assignedTo":       "Assegnato a",
+    "markDone":         "Fatto",
+    "marking":          "Segnando…",
+    "emptyTasks":       "Nessun compito",
+    "priorityHigh":     "Alta",
+    "priorityMedium":   "Media",
+    "priorityLow":      "Bassa",
+    "kanbanStages": {
+      "lead":          "Lead",
+      "qualified":     "Qualificato",
+      "proposal_sent": "Offerta inviata",
+      "negotiation":   "Trattativa",
+      "won":           "Vinto",
+      "lost":          "Perso"
+    },
+    "dealTransitions": {
+      "qualify":        "Qualifica",
+      "send_proposal":  "Invia offerta",
+      "negotiate":      "Tratta",
+      "win":            "Vinci",
+      "lose":           "Perdi"
+    },
+    "quoteStates": {
+      "draft":    "Bozza",
+      "sent":     "Inviato",
+      "accepted": "Accettato",
+      "rejected": "Rifiutato",
+      "expired":  "Scaduto"
+    },
+    "invoiceStates": {
+      "draft":          "Bozza",
+      "issued":         "Emessa",
+      "sent":           "Inviata",
+      "paid":           "Pagata",
+      "partially_paid": "Parzialmente pagata",
+      "overdue":        "Scaduta",
+      "cancelled":      "Annullata",
+      "credited":       "Accreditata"
+    }
+  },
+  "accounts": {
+    "title":         "Account (B2B)",
+    "newBtn":        "Nuovo account",
+    "newTitle":      "Nuovo account",
+    "editTitle":     "Modifica account",
+    "deleteTitle":   "Elimina account",
+    "empty":         "Nessun account",
+    "companyPh":     "Ragione sociale",
+    "industryPh":    "Settore",
+    "websitePh":     "Sito web",
+    "phonePh":       "Telefono",
+    "emailPh":       "Email",
+    "taxIdPh":       "Partita IVA",
+    "euTaxIdPh":     "P. IVA UE",
+    "filterAll":     "Tutti",
+    "colCompany":    "Ragione sociale",
+    "colType":       "Tipo",
+    "colIndustry":   "Settore",
+    "colContact":    "Contatto",
+    "colCreated":    "Creato",
+    "colActions":    "Azioni",
+    "typeProspect":  "Potenziale",
+    "typeCustomer":  "Cliente",
+    "typePartner":   "Partner",
+    "typeCompetitor":"Concorrente"
+  },
+  "activities": {
+    "title":           "Attività",
+    "newBtn":          "Registra",
+    "newTitle":        "Registra attività",
+    "editTitle":       "Modifica attività",
+    "deleteTitle":     "Elimina attività",
+    "empty":           "Nessuna attività da mostrare",
+    "emptyInDeal":     "Ancora nessuna attività per questa trattativa.",
+    "addInDealBtn":    "Nuova attività",
+    "subjectPh":       "Oggetto",
+    "bodyPh":          "Contenuto / nota",
+    "searchPh":        "Cerca per oggetto, contenuto, cliente…",
+    "directionOutbound":"In uscita",
+    "directionInbound": "In arrivo",
+    "durationPh":      "Durata (min)",
+    "tabAll":          "Tutte",
+    "tabProjectFeed":  "Feed progetto",
+    "groupByLabel":    "Raggruppa per:",
+    "groupTime":       "Tempo",
+    "groupCustomer":   "Cliente",
+    "groupDeal":       "Trattativa",
+    "dealTabDetails":  "Dettagli",
+    "dealTabActivities":"Attività"
+  },
+  "pipelineConfig": {
+    "title":           "Configurazione pipeline",
+    "subtitle":        "Modifica admin delle pipeline e degli stage.",
+    "newBtn":          "Nuova pipeline",
+    "newNamePh":       "Nome pipeline",
+    "defaultPipeline": "Pipeline predefinita",
+    "emptyPipelines":  "Ancora nessuna pipeline",
+    "firstPipeline":   "Crea la tua prima pipeline",
+    "selectToEdit":    "Seleziona una pipeline da modificare.",
+    "pipelineNameLabel":"Nome pipeline",
+    "makeDefault":     "Imposta come predefinita",
+    "stagesLabel":     "Stage",
+    "newStage":        "Nuovo stage",
+    "emptyStages":     "Ancora nessuno stage — aggiungine almeno uno."
+  },
+  "sidebarCustomize": {
+    "title":           "Personalizza menu",
+    "hint":            "Nascondi o riordina le voci. Le modifiche valgono solo per la tua vista.",
+    "savingState":     "Salvataggio…",
+    "savedState":      "Salvato",
+    "workerHint":      "La tua vista è semplificata, niente personalizzazione.",
+    "loadingState":    "Caricamento…",
+    "defaultClosed":   "(chiuso di default)",
+    "defaultOpen":     "(aperto di default)",
+    "keepClosed":      "Tieni chiuso",
+    "resetToDefault":  "Ripristina default"
+  }
+}

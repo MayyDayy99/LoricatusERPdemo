@@ -1,0 +1,241 @@
+{
+  "auth": {
+    "login": {
+      "title": "Sign in to your account",
+      "email": "Email address",
+      "emailPlaceholder": "you@company.com",
+      "password": "Password",
+      "submit": "Sign in",
+      "submitting": "Signing in…",
+      "success": "Signed in successfully",
+      "error": "Invalid email or password",
+      "validation": {
+        "invalidEmail": "Invalid email address",
+        "passwordRequired": "Password is required"
+      }
+    },
+    "twoFactor": {
+      "title": "Two-Factor Authentication",
+      "description": "Enter the 6-digit code from your authenticator app.",
+      "codeLabel": "Authentication code",
+      "codePlaceholder": "000000",
+      "submit": "Verify",
+      "submitting": "Verifying…",
+      "error": "Invalid code",
+      "back": "Back to sign in"
+    }
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "Welcome to the Construction SaaS platform",
+    "recentProjects": "Recent Projects",
+    "noProjects": "No projects yet",
+    "noProjectsHint": "Create your first project to get started."
+  },
+  "projects": {
+    "title": "Projects",
+    "totalCount": "{count} projects",
+    "newProject": "New Project"
+  },
+  "locale": {
+    "hu": "Magyar",
+    "en": "English",
+    "it": "Italiano"
+  },
+  "setup": {
+    "platformTitle": "Construction SaaS Platform",
+    "enterpriseSetup": "Enterprise Setup Wizard",
+    "steps": {
+      "health":     { "label": "Health Check",   "description": "Verify database, Redis and worker connectivity" },
+      "admin":      { "label": "Admin Account",   "description": "Create the initial administrator user" },
+      "tenant":     { "label": "Tenant Setup",    "description": "Configure your organization" },
+      "api_keys":   { "label": "API Keys",        "description": "Enter integration API keys" },
+      "validation": { "label": "Validation",      "description": "Smoke test all integrations" },
+      "activate":   { "label": "Activate",        "description": "Activate the platform" }
+    },
+    "step1": {
+      "title":    "Step 1: Health Check",
+      "subtitle": "Verify that all infrastructure services are running.",
+      "checks": {
+        "postgres": "PostgreSQL write test",
+        "redis":    "Redis write test",
+        "worker":   "Worker ping"
+      },
+      "button":        "Run Health Check",
+      "buttonRunning": "Running…",
+      "toast": {
+        "success": "Health check passed",
+        "error":   "Health check failed. Check your infrastructure."
+      }
+    },
+    "step2": {
+      "title":    "Step 2: Create Admin Account",
+      "subtitle": "Create the initial platform administrator.",
+      "form": {
+        "firstName": "First Name",
+        "lastName":  "Last Name",
+        "email":     "Email",
+        "password":  "Password (min 8 chars)"
+      },
+      "button":        "Create Admin & Continue",
+      "buttonRunning": "Creating…",
+      "toast": {
+        "success":    "Admin account created",
+        "error":      "Failed to create admin",
+        "validation": "Email and password are required"
+      }
+    },
+    "step6": {
+      "title":    "Step 6: Activate Platform",
+      "subtitle": "All steps complete. Activate the platform to begin.",
+      "info":     "All required setup steps have been completed. Click Activate to go live.",
+      "button":        "Activate Platform",
+      "buttonRunning": "Activating…",
+      "toast": {
+        "success": "Platform activated! Redirecting to login…",
+        "error":   "Activation failed"
+      }
+    },
+    "complete": {
+      "title":    "Platform Ready",
+      "subtitle": "Redirecting you to login…"
+    }
+  },
+  "crm": {
+    "activities":       "Activities",
+    "logActivity":      "Log Activity",
+    "subject":          "Subject",
+    "occurredAt":       "Date",
+    "emptyActivities":  "No activities logged",
+    "activityCall":     "Call",
+    "activityEmail":    "Email",
+    "activityMeeting":  "Meeting",
+    "activitySiteVisit":"Site Visit",
+    "activityNote":     "Note",
+    "deals":            "Deals",
+    "noAccess":         "No access",
+    "pipelines":        "Pipelines",
+    "quotes":           "Quotes",
+    "invoices":         "Invoices",
+    "tasks":            "Tasks",
+    "newTask":          "New task",
+    "newTaskTitle":     "Create new task",
+    "allTasks":         "All tasks",
+    "assignedTo":       "Assignee",
+    "markDone":         "Done",
+    "marking":          "Marking…",
+    "emptyTasks":       "No tasks",
+    "priorityHigh":     "High",
+    "priorityMedium":   "Medium",
+    "priorityLow":      "Low",
+    "kanbanStages": {
+      "lead":          "Lead",
+      "qualified":     "Qualified",
+      "proposal_sent": "Proposal Sent",
+      "negotiation":   "Negotiation",
+      "won":           "Won",
+      "lost":          "Lost"
+    },
+    "dealTransitions": {
+      "qualify":        "Qualify",
+      "send_proposal":  "Send Proposal",
+      "negotiate":      "Negotiate",
+      "win":            "Win",
+      "lose":           "Lose"
+    },
+    "quoteStates": {
+      "draft":    "Draft",
+      "sent":     "Sent",
+      "accepted": "Accepted",
+      "rejected": "Rejected",
+      "expired":  "Expired"
+    },
+    "invoiceStates": {
+      "draft":          "Draft",
+      "issued":         "Issued",
+      "sent":           "Sent",
+      "paid":           "Paid",
+      "partially_paid": "Partially Paid",
+      "overdue":        "Overdue",
+      "cancelled":      "Cancelled",
+      "credited":       "Credited"
+    }
+  },
+  "accounts": {
+    "title":         "Accounts (B2B)",
+    "newBtn":        "New Account",
+    "newTitle":      "New Account",
+    "editTitle":     "Edit Account",
+    "deleteTitle":   "Delete Account",
+    "empty":         "No accounts",
+    "companyPh":     "Company name",
+    "industryPh":    "Industry",
+    "websitePh":     "Website",
+    "phonePh":       "Phone",
+    "emailPh":       "Email",
+    "taxIdPh":       "Tax ID",
+    "euTaxIdPh":     "EU Tax ID",
+    "filterAll":     "All",
+    "colCompany":    "Company",
+    "colType":       "Type",
+    "colIndustry":   "Industry",
+    "colContact":    "Contact",
+    "colCreated":    "Created",
+    "colActions":    "Actions",
+    "typeProspect":  "Prospect",
+    "typeCustomer":  "Customer",
+    "typePartner":   "Partner",
+    "typeCompetitor":"Competitor"
+  },
+  "activities": {
+    "title":           "Activities",
+    "newBtn":          "Log",
+    "newTitle":        "Log Activity",
+    "editTitle":       "Edit Activity",
+    "deleteTitle":     "Delete Activity",
+    "empty":           "No activities to show",
+    "emptyInDeal":     "No activities yet for this deal.",
+    "addInDealBtn":    "New Activity",
+    "subjectPh":       "Subject",
+    "bodyPh":          "Content / note",
+    "searchPh":        "Search by subject, content, customer…",
+    "directionOutbound":"Outbound",
+    "directionInbound": "Inbound",
+    "durationPh":      "Duration (min)",
+    "tabAll":          "All",
+    "tabProjectFeed":  "Project feed",
+    "groupByLabel":    "Group by:",
+    "groupTime":       "Time",
+    "groupCustomer":   "Customer",
+    "groupDeal":       "Deal",
+    "dealTabDetails":  "Details",
+    "dealTabActivities":"Activities"
+  },
+  "pipelineConfig": {
+    "title":           "Pipeline configuration",
+    "subtitle":        "Admin-level editing of pipelines and stages.",
+    "newBtn":          "New pipeline",
+    "newNamePh":       "Pipeline name",
+    "defaultPipeline": "Default pipeline",
+    "emptyPipelines":  "No pipelines yet",
+    "firstPipeline":   "Create your first pipeline",
+    "selectToEdit":    "Select a pipeline to edit.",
+    "pipelineNameLabel":"Pipeline name",
+    "makeDefault":     "Make default",
+    "stagesLabel":     "Stages",
+    "newStage":        "New stage",
+    "emptyStages":     "No stages yet — add at least one."
+  },
+  "sidebarCustomize": {
+    "title":           "Customize Sidebar",
+    "hint":            "Hide or reorder menu items. Changes apply only to your view.",
+    "savingState":     "Saving…",
+    "savedState":      "Saved",
+    "workerHint":      "Your view is simplified — no customization available.",
+    "loadingState":    "Loading…",
+    "defaultClosed":   "(collapsed by default)",
+    "defaultOpen":     "(open by default)",
+    "keepClosed":      "Keep collapsed",
+    "resetToDefault":  "Reset to default"
+  }
+}

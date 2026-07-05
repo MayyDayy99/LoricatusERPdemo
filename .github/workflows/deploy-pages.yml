@@ -1,0 +1,64 @@
+name: Deploy demo to GitHub Pages
+
+# Minden main-re pusholt commit után lefut: statikus export + Pages-deploy.
+# Az eredmény a GitHub-subdomainen látszik: https://<user>.github.io/<repo>/
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: yarn
+
+      - name: Install
+        run: yarn install --frozen-lockfile
+
+      - name: Prepare static export (strip server-only trees)
+        run: bash scripts/prepare-demo-export.sh
+
+      - name: Build static demo
+        env:
+          DEMO_EXPORT: 'true'
+          NEXT_PUBLIC_DEMO_MODE: 'true'
+          # basePath = a repo neve (pl. /LoricatusERPdemo), hogy az assetek
+          # helyesen töltsenek a <user>.github.io/<repo>/ útvonalon.
+          DEMO_BASE_PATH: /${{ github.event.repository.name }}
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: yarn build
+
+      - name: Add .nojekyll + SPA 404 fallback
+        run: |
+          touch out/.nojekyll
+          # Ismeretlen mély-linkek is a demóba érkezzenek (kliensoldali routing).
+          cp out/404.html out/404.html.bak 2>/dev/null || true
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
