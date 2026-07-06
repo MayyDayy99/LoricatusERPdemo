@@ -159,9 +159,29 @@ export function buildSeed(): Store {
     { cat: 'cat-office', name: 'Eszközpark — éves kalibráció',             state: 'active',    desc: 'Drónok és szkennerek éves kalibrációja + adminisztráció.' },
     { cat: 'cat-office', name: '2026 Q1 — pénzügyi zárás',                 state: 'archived',  desc: 'Negyedéves számlázás és zárás, lezárva.' },
   ];
+  // Térkép-koordináták magyar városokhoz (a Térkép modul projekt-helyszínei).
+  const CITY_GEO: Record<string, [number, number]> = {
+    'Budapest': [47.4979, 19.0402], 'Miskolc': [48.1035, 20.7784], 'Szeged': [46.2530, 20.1414],
+    'Pécs': [46.0727, 18.2323], 'Gödöllő': [47.5960, 19.3560], 'Törökbálint': [47.4306, 18.9110],
+    'Ároktő': [47.7495, 20.9346], 'Dombóvár': [46.3767, 18.1386],
+  };
+  // A projektekhez tartozó városok (PROJECT_DEFS sorrendjében; '' = nincs helyszín, pl. iroda).
+  const PROJECT_CITY = ['Budapest', 'Miskolc', 'Szeged', 'Pécs', 'Gödöllő', 'Budapest', 'Budapest', 'Törökbálint', 'Ároktő', 'Dombóvár', 'Pécs', 'Miskolc', 'Gödöllő', 'Szeged', '', ''];
   store.projects = PROJECT_DEFS.map((d, i) => {
     const room = ROOMS.find((r) => r.id === d.cat)!;
     const cust = store.customers[i % store.customers.length];
+    const city = PROJECT_CITY[i];
+    const geo = city ? CITY_GEO[city] : null;
+    const location = geo ? {
+      latitude: geo[0] + ((i % 3) - 1) * 0.008,
+      longitude: geo[1] + ((i % 4) - 1.5) * 0.010,
+      address: `${city}, Fő utca ${i + 1}.`, city, country: 'Magyarország',
+    } : null;
+    // Néhány projektnél kirajzolt területkijelölés (polygon = [lat,lng][]).
+    const polygon: [number, number][] | null = (geo && (i === 0 || i === 3)) ? [
+      [geo[0] + 0.006, geo[1] - 0.008], [geo[0] + 0.007, geo[1] + 0.009],
+      [geo[0] - 0.006, geo[1] + 0.007], [geo[0] - 0.007, geo[1] - 0.006],
+    ] : null;
     return {
       id: i < 3 ? `proj-${i + 1}` : nextId('proj'),
       tenantId: T,
@@ -176,6 +196,8 @@ export function buildSeed(): Store {
       budget: huf(2_000_000 + i * 850_000), currency: 'HUF',
       progress: (i * 13) % 100,
       startDate: day(-30 + i), endDate: day(20 + i * 4),
+      ...(location ? { location } : {}),
+      ...(polygon ? { metadata: { polygon } } : {}),
       createdAt: ts(-40 + i), updatedAt: ts(-i),
     };
   });
@@ -284,19 +306,88 @@ export function buildSeed(): Store {
   }));
 
   // ── Work-orders (munkalapok) ─────────────────────────────────────
-  const woStates = ['draft', 'active', 'completed', 'signed_off', 'archived'];
-  store['work-orders'] = Array.from({ length: 14 }).map((_, i) => ({
-    id: i < 2 ? `wo-${i + 1}` : nextId('wo'),
-    tenantId: T,
-    workOrderNumber: `WO-2026-${String(i + 1).padStart(4, '0')}`,
-    title: `Munkalap — ${pick(CITIES, i)}`,
-    state: pick(woStates, i), status: pick(woStates, i),
-    customerId: store.customers[i % store.customers.length].id,
-    customerName: store.customers[i % store.customers.length].name,
-    projectId: store.projects[i % store.projects.length].id,
-    location: `${pick(CITIES, i)}, munkaterület ${i + 1}.`,
-    scheduledDate: day(-5 + i), createdAt: ts(-10 + i), updatedAt: ts(-i),
-  }));
+  const woStates = ['draft', 'active', 'completed', 'signed_off', 'active'];
+  // Munkalap-sablon: szekciók + tételek (a detail-nézet szekciónként csoportosít).
+  const WO_SECTIONS: Array<{ code: string; title: string; rows: Array<[string, string, string]> }> = [
+    { code: 'ELO', title: 'Előkészítés', rows: [
+      ['Helyszíni bejárás és kockázatfelmérés', '—', '—'],
+      ['Légtér-engedély ellenőrzése (NOTAM)', '—', '—'],
+      ['Eszközök kalibrálása', 'Leica RTC360', '—'],
+    ] },
+    { code: 'TEREP', title: 'Terepi munka', rows: [
+      ['Drónrepülés – homlokzat ortofotó', 'DJI Mavic 3E', 'Pix4Dcapture'],
+      ['Lézerszkennelés – belső terek', 'Leica RTC360', 'Cyclone FIELD'],
+      ['GNSS alappontok bemérése', 'Emlid Reach RS2+', '—'],
+    ] },
+    { code: 'FELD', title: 'Feldolgozás', rows: [
+      ['Pontfelhő regisztráció', 'Cyclone REGISTER 360', '—'],
+      ['Ortofotó és DTM generálás', 'Agisoft Metashape', '—'],
+      ['BIM-modell építés (LOD300)', 'Autodesk Revit', '—'],
+    ] },
+    { code: 'ATAD', title: 'Átadás', rows: [
+      ['Riport összeállítása', '—', '—'],
+      ['Adatátadás a megrendelőnek', '—', '—'],
+    ] },
+  ];
+  store['work-orders'] = Array.from({ length: 14 }).map((_, i) => {
+    const st = pick(woStates, i);
+    const proj = store.projects[i % store.projects.length];
+    const cust = store.customers[i % store.customers.length];
+    const resp = users[1 + (i % 4)];
+    const woId = i < 2 ? `wo-${i + 1}` : nextId('wo');
+    const city = (proj.location && proj.location.city) || pick(CITIES, i);
+    // Munkalap-tételek szekciónként; a tétel státusza a munkalap állapotától függ.
+    let sort = 0;
+    const items: Row[] = [];
+    WO_SECTIONS.forEach((sec, si) => {
+      sec.rows.forEach((r, ri) => {
+        const done = (st === 'completed' || st === 'signed_off') ? true
+          : st === 'active' ? (si * 3 + ri) < 5 : false;
+        items.push({
+          id: nextId('woi'), workOrderId: woId,
+          sectionCode: sec.code, sectionTitle: sec.title,
+          code: `${si + 1}.${ri + 1}`, task: r[0],
+          tool1: r[1] === '—' ? null : r[1], tool2: r[2] === '—' ? null : r[2],
+          owner: users[1 + ((si + ri) % 4)].fullName,
+          status: done ? 'done' : 'todo',
+          unitPrice: null, quantity: null, unit: null,
+          sortIndex: sort++,
+        });
+      });
+    });
+    return {
+      id: woId, tenantId: T,
+      workOrderNumber: `WO-2026-${String(i + 1).padStart(4, '0')}`,
+      title: `Munkalap — ${proj.name}`,
+      state: st, status: st,
+      customerId: cust.id, customerName: cust.name, clientCompany: pick(COMPANIES, i),
+      projectId: proj.id, projectName: proj.name,
+      location: `${city} – munkaterület`,
+      locationAddress: (proj.location && proj.location.address) || `${city}, Fő utca ${i + 1}.`,
+      locationGps: proj.location ? { lat: proj.location.latitude, lng: proj.location.longitude } : undefined,
+      deadline: day(8 + i), workDates: [day(-2 + i), day(-1 + i)],
+      contacts: [
+        { name: `${pick(HU_FIRST, i)} ${pick(HU_LAST, i)}`, phone: `+36 30 ${200 + i} ${3000 + i}`, email: `kapcsolat${i}@ugyfel.hu`, role: 'Kapcsolattartó' },
+      ],
+      accessInfo: 'Kulcs a portán, munkaidőben (7:00–16:00). Emelőkosár igényelhető.',
+      requiredDocuments: 'Belépési engedély, munkavédelmi oktatás igazolása.',
+      priorAdministration: 'Légtér-engedély beszerezve (NOTAM), tulajdonosi hozzájárulás megvan.',
+      projectGoal: 'Meglévő állapot digitális rögzítése drónnal és lézerszkennerrel, majd BIM-modell készítése.',
+      scanningTasks: 'Belső terek és homlokzat lézerszkennelése, alappont-hálózat kiépítése.',
+      droneTasks: 'Homlokzati ortofotó és tetőfelmérés, GSD 1,5 cm.',
+      processingTasks: 'Pontfelhő-regisztráció, ortofotó és DTM generálás.',
+      modelingTasks: 'BIM LOD300 modell, metszetek és alaprajzok.',
+      consultationDate: day(4 + i), consultationPrepTime: '2 óra',
+      isExtraWork: i % 7 === 0,
+      deliverableFormats: ['PDF riport', 'RCP pontfelhő', 'IFC / RVT modell', 'DWG alaprajz'],
+      responsiblePerson: resp.fullName,
+      notes: i % 4 === 0 ? 'Az ügyfél kérte a keleti szárny kiemelt felmérését.' : '',
+      customFields: st === 'signed_off' ? { signedBy: cust.name, signedAt: ts(-i) } : {},
+      items,
+      createdBy: 'user-demo', createdAt: ts(-10 + i), updatedAt: ts(-i),
+      scheduledDate: day(-5 + i),
+    };
+  });
 
   // ── CRM-tasks / internal-tasks / activities ──────────────────────
   const taskStatuses = ['pending', 'in_progress', 'completed', 'draft'];

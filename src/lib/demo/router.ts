@@ -160,6 +160,13 @@ const special: Handler = (m, parts, query, body) => {
   // Customer-360 összegzés
   if (path.match(/^customers\/[^/]+\/summary$/) && m === 'get') return ok(customerSummary(parts[1]));
 
+  // Munkalap task-statisztika (a work-order detail fejlécéhez)
+  if (path.match(/^work-orders\/[^/]+\/task-stats$/) && m === 'get') {
+    const wo = store['work-orders'].find((w) => w.id === parts[1]);
+    const its = (wo?.items as Row[] | undefined) ?? [];
+    return ok({ taskCount: its.length, draftCount: its.filter((it) => it.status !== 'done').length });
+  }
+
   // Szoftver ↔ PC mátrix (Projekt map → admin → „Szoftver mátrix")
   if (path === 'equipment/software-pc/list' && m === 'get') return ok(store['equipment/software-pc'] ?? []);
   if (path === 'equipment/software-pc' && m === 'post') {
