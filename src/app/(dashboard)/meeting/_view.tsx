@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useLayoutEffect, startTransition } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { clsx } from 'clsx';
@@ -61,7 +61,11 @@ import styles from './tv-dashboard.module.css';
 import { useT } from '@/lib/hooks/use-t';
 
 /* ── CONFIG ───────────────────────────────────────────────────── */
-const DAYS_AHEAD_DEFAULT = 730;      // 2 years forward by default
+// P4 (#8): DAYS_AHEAD_DEFAULT 730 → 180. A 2 éves alaphorizont ~1460 mindig-jelenlévő
+// interaktív DOM-elem-et jelentett (nap-cella + weather-cell), ami a re-render-eket
+// és a paint-et is folyamatosan terhelte. 180 napos default (~360 cella) + a
+// már meglévő "Load more →" gomb 180-nappal-tovább kibővíti ha kell.
+const DAYS_AHEAD_DEFAULT = 180;      // 6 months forward by default
 const DAYS_AHEAD_INCREMENT = 180;    // "Load more →" step (6 months)
 const DAY_W_DEFAULT = 36;
 const DAY_W_MIN = 12;
@@ -297,16 +301,26 @@ function getTaskWarnings(
 }
 
 /* ── CLOCK ─────────────────────────────────────────────────── */
-function useLiveClock(): { time: string; date: string } {
+// P3 — LiveClock LEVÁLASZTVA saját komponensbe, mert az 1 mp-es tick eddig
+// MeetingView-t re-renderelte MINDEN másodpercben → 25 ProjectRow újra futott,
+// annak minden useMemo dep-je újra ellenőrződött, a JSX újraépült. Ez volt az
+// idle 40-60 FPS-ingadozás fő oka és a drop-utáni lag amplifikátora is
+// (a drop-cascade közepén tickelhet a clock és ~200ms extra munkát kényszerít).
+// Most a tick CSAK a <LiveClock /> ~2-elemű komponenst renderelí.
+function LiveClock() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
-  return {
-    time: now.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-    date: now.toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }),
-  };
+  const time = now.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const date = now.toLocaleDateString('hu-HU', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+  return (
+    <>
+      <div className={styles.clock}>{time}</div>
+      <div className={styles.date}>{date}</div>
+    </>
+  );
 }
 
 /* ── DAYS ─────────────────────────────────────────────────── */
@@ -383,12 +397,19 @@ function tasksOverlap(a: DashboardTask, b: DashboardTask): boolean {
   return aStart < bEnd && bStart < aEnd;
 }
 
-function buildProjectLanes(overview: DashboardOverview, _today: Date): ProjectLane[] {
-  return overview.projects.map((project, idx) => {
-    const color = projectColor(project, idx);
-    const tasks = overview.tasks.filter(t => t.projectId === project.id && t.startDate);
-
-    // HIBRID lane-allokáció: a manuálisan beállított laneIndex>0 abszolút prioritást
+// P3 — Per-project lane-építő. Kivéve azért `buildProjectLanes`-ből, hogy a
+// planes-cache kompatibilis referenciával tudja rebuild-elni CSAK azt a projektet,
+// amelynek a task-jai változtak. Drop-cascade-kor a 24/25 projekt task-jai
+// referenciailag változatlanok → 24 plane-cache-hit → 24 ProjectRow allFlatTasks
+// memo-hit → nem tolakodik a JS a paint frame elé.
+function buildSingleProjectLane(
+  project: DashboardProject,
+  projectTasks: DashboardTask[],
+  idx: number,
+): ProjectLane {
+  const color = projectColor(project, idx);
+  const tasks = projectTasks;
+  // HIBRID lane-allokáció: a manuálisan beállított laneIndex>0 abszolút prioritást
     // élvez (a user explicit döntése). A laneIndex=0 (vagy null) task-okat
     // greedy-overlap-detect-tel automatikusan szétrendezzük: minden task kapja
     // a legalacsonyabb szabad sávot, ahol nem fed át manuálisan beállított
@@ -437,12 +458,22 @@ function buildProjectLanes(overview: DashboardOverview, _today: Date): ProjectLa
     const lanes: DashboardTask[][] = Array.from({ length: maxLane + 1 }, (_, laneIdx) =>
       (lanesMap.get(laneIdx) ?? []).sort((a, b) => (a.startDate ?? '').localeCompare(b.startDate ?? '')),
     );
-    return { project, color, lanes, numLanes: Math.max(1, lanes.length) };
+  return { project, color, lanes, numLanes: Math.max(1, lanes.length) };
+}
+
+// Legacy wrapper — a nem-cache-elt hívóknak (belső util-ok esetén).
+function buildProjectLanes(overview: DashboardOverview, _today: Date): ProjectLane[] {
+  return overview.projects.map((project, idx) => {
+    const tasks = overview.tasks.filter(t => t.projectId === project.id && t.startDate);
+    return buildSingleProjectLane(project, tasks, idx);
   });
 }
 
 /* ── TASK BAR BACKGROUND (vasúti-pálya alakzat: hétvégén 20% magasság) ─── */
-function TaskBarBackground({
+// P2 — React.memo, mert pushed task-oknál a TaskBar body fut (a `isPushed` és
+// `dragOffsetDays` prop változik), de a background PATH és a bgColor NEM. Az
+// SVG raszterizáció drága → memo skip 1-2 ms-t nyer minden pushed task-nál/frame.
+const TaskBarBackground = React.memo(function TaskBarBackground({
   startDate, widthDays, dayWidth, height, bgColor, isGepido,
 }: {
   startDate: Date;
@@ -512,10 +543,30 @@ function TaskBarBackground({
       <path d={path.d} fill={bgColor} />
     </svg>
   );
-}
+});
 
 /* ── TASK BAR ─────────────────────────────────────────────── */
-function TaskBar({
+
+/**
+ * TaskBar callback-dispatcher — a 4 kallhandler egy stabil objektumban.
+ *
+ * A szülő (ProjectRow) `useMemo(() => ({...}), [])` + `handlersRef`-alapú
+ * késleltetett-olvasás-szal állítja elő, hogy `handlers` referencia STABIL
+ * legyen a render-ek között. Enélkül a `React.memo(TaskBar)` értelmét vesztené:
+ * minden render új inline lambdát kreálna → props-shallow-compare mindig false
+ * → memo-skip nem érvényesül.
+ *
+ * A dispatcher metódusai a `task`-ot expliciten átveszik, hogy TaskBar-on belül
+ * `handlers.click(task)` írható legyen — így a hívás-oldali closure sem kell.
+ */
+type TaskBarHandlers = {
+  moveDown: (task: DashboardTask, e: React.PointerEvent) => void;
+  resizeDown: (task: DashboardTask, e: React.PointerEvent) => void;
+  click: (task: DashboardTask) => void;
+  toggleDone: (task: DashboardTask) => void | Promise<void>;
+};
+
+const TaskBar = React.memo(function TaskBar({
   task,
   project,
   people,
@@ -523,8 +574,7 @@ function TaskBar({
   today,
   laneIdx,
   laneOffsetPx = 0,
-  onClick,
-  onToggleDone,
+  handlers,
   status,
   warnings,
   dayWidth,
@@ -532,8 +582,6 @@ function TaskBar({
   daysBehind,
   dragOffsetDays,
   dragMode,
-  onMoveDown,
-  onResizeDown,
   isDragging,
   isPushed,
   taskTypes,
@@ -547,12 +595,13 @@ function TaskBar({
   laneIdx: number;
   /** Vertikális drag-eltolás px-ben — csak amikor ezt a kártyát húzzák lift-be. */
   laneOffsetPx?: number;
-  onClick: () => void;
-  /** Avatár-hover overlay: ha a task NEM completed, ✓ jelenik meg
-   *  („készre jelölés"); ha completed, ↺ jelenik meg („visszaállítás
-   *  folyamatban-ra"). A callback maga dönt a megfelelő status-update-ről
-   *  (a TaskBar csak a `task.status`-t adja át vizuálisan). */
-  onToggleDone?: () => void;
+  /**
+   * Stabil callback-dispatcher. A szülő `useMemo(() => ({...}), [])` +
+   * `handlersRef`-alapú indirect olvasásával épül fel, hogy referencia-stabil
+   * legyen — enélkül a `React.memo` teljesen hatástalan lenne, minden setDrag()
+   * re-renderelne minden TaskBart. Lásd TaskBarHandlers doc.
+   */
+  handlers: TaskBarHandlers;
   status: TaskVisualStatus;
   warnings: number;
   dayWidth: number;
@@ -561,8 +610,6 @@ function TaskBar({
   /** Aktív drag delta nap; csak ha ez a kártya van drag-elve (egyébként 0). */
   dragOffsetDays: number;
   dragMode: 'move' | 'resize' | null;
-  onMoveDown: (e: React.PointerEvent) => void;
-  onResizeDown: (e: React.PointerEvent) => void;
   isDragging?: boolean;
   isPushed?: boolean;
   /** Task-típus lista (admin-konfigolható) — színt és label-t innen veszi a bar. */
@@ -640,12 +687,12 @@ function TaskBar({
   return (
     <div
       title={tooltip}
-      onPointerDown={e => { downXRef.current = e.clientX; downYRef.current = e.clientY; onMoveDown(e); }}
+      onPointerDown={e => { downXRef.current = e.clientX; downYRef.current = e.clientY; handlers.moveDown(task, e); }}
       onClick={e => {
         const dx = downXRef.current != null ? Math.abs(e.clientX - downXRef.current) : 0;
         const dy = downYRef.current != null ? Math.abs(e.clientY - downYRef.current) : 0;
         if (dx > 5 || dy > 5) { e.stopPropagation(); return; }
-        onClick();
+        handlers.click(task);
       }}
       className={clsx(
         styles.task,
@@ -701,44 +748,38 @@ function TaskBar({
         const isCompleted = task.status === 'completed';
         const overlayIcon = isCompleted ? '↺' : '✓';
         const overlayBg = isCompleted ? '#6366f1' : '#16a34a';
-        const overlayTitle = onToggleDone
-          ? (isCompleted
-              ? (person ? t.meeting.taskBar.revertTooltip(personName(person)) : t.meeting.taskBar.revertTooltipNoName)
-              : (person ? t.meeting.taskBar.markDoneTooltip(personName(person)) : t.meeting.taskBar.markDoneTooltipNoName))
-          : (person ? personName(person) : '');
+        const overlayTitle = isCompleted
+          ? (person ? t.meeting.taskBar.revertTooltip(personName(person)) : t.meeting.taskBar.revertTooltipNoName)
+          : (person ? t.meeting.taskBar.markDoneTooltip(personName(person)) : t.meeting.taskBar.markDoneTooltipNoName);
         if (person) {
           return (
             <span
-              className={clsx(styles.taskAvatar, onToggleDone && styles.taskAvatarClickable)}
+              className={clsx(styles.taskAvatar, styles.taskAvatarClickable)}
               style={{ background: avatarColor(person) }}
               title={overlayTitle}
               onPointerDown={e => e.stopPropagation()}
-              onClick={onToggleDone ? (e) => { e.stopPropagation(); onToggleDone(); } : undefined}
+              onClick={(e) => { e.stopPropagation(); handlers.toggleDone(task); }}
             >
               <span className={styles.taskAvatarInitial}>{personInitial(person)}</span>
-              {onToggleDone && (
-                <span className={styles.taskAvatarCheck} style={{ background: overlayBg }} aria-hidden="true">
-                  {overlayIcon}
-                </span>
-              )}
+              <span className={styles.taskAvatarCheck} style={{ background: overlayBg }} aria-hidden="true">
+                {overlayIcon}
+              </span>
             </span>
           );
         }
         if (isEventTask && emojiIcon) {
           return (
             <span
-              className={clsx(styles.taskAvatar, onToggleDone && styles.taskAvatarClickable)}
+              className={clsx(styles.taskAvatar, styles.taskAvatarClickable)}
               style={{ background: bgColor ?? '#6b7280', color: '#fff' }}
               title={overlayTitle}
               onPointerDown={e => e.stopPropagation()}
-              onClick={onToggleDone ? (e) => { e.stopPropagation(); onToggleDone(); } : undefined}
+              onClick={(e) => { e.stopPropagation(); handlers.toggleDone(task); }}
             >
               <span className={styles.taskAvatarInitial}>{emojiIcon}</span>
-              {onToggleDone && (
-                <span className={styles.taskAvatarCheck} style={{ background: overlayBg }} aria-hidden="true">
-                  {overlayIcon}
-                </span>
-              )}
+              <span className={styles.taskAvatarCheck} style={{ background: overlayBg }} aria-hidden="true">
+                {overlayIcon}
+              </span>
             </span>
           );
         }
@@ -781,14 +822,14 @@ function TaskBar({
       {/* Resize handle a kártya jobb szélén — csak akkor látszik, ha actualWidth > 14 */}
       {actualWidth > 14 && (
         <span
-          onPointerDown={e => { e.stopPropagation(); onResizeDown(e); }}
+          onPointerDown={e => { e.stopPropagation(); handlers.resizeDown(task, e); }}
           className={clsx(styles.resizeHandle, dragMode === 'resize' && styles.activeResizeHandle)}
           title={t.meeting.taskBar.resizeHandleTitle}
         />
       )}
     </div>
   );
-}
+});
 
 /* ── HEADER ROW ───────────────────────────────────────────── */
 function GanttHeader({
@@ -830,6 +871,29 @@ function GanttHeader({
     return m;
   }, [forecast]);
 
+  // P4 (#12): Per-nap weather-adat PRECOMPUTE — az Icon-komponens, risk-osztály,
+  // és a tooltip-string EGYSZER kalkulálódik napi bázison. Előtte a `days.map`-ben
+  // minden render-nél 730× `weatherCodeToIcon` + `evaluateDroneRisk` + string-template
+  // futott. Most a header egyetlen olcsó lookup + JSX.
+  const weatherByDayIso = useMemo(() => {
+    const m = new Map<string, {
+      Icon: ReturnType<typeof weatherCodeToIcon>;
+      risk: ReturnType<typeof evaluateDroneRisk>;
+      tip: string;
+    }>();
+    for (const d of days) {
+      const wd = weatherByDate.get(d.iso);
+      m.set(d.iso, {
+        Icon: weatherCodeToIcon(wd?.weather_code),
+        risk: evaluateDroneRisk(wd, thresholds),
+        tip: wd
+          ? `${Math.round(wd.temp_min)}° / ${Math.round(wd.temp_max)}° · ${wd.precip_prob_max}% csapadék · max szél ${Math.round(wd.wind_speed_max)} m/s`
+          : 'Nincs előrejelzés',
+      });
+    }
+    return m;
+  }, [days, weatherByDate, thresholds]);
+
   return (
     <div className={styles.hdr}>
       <div className={styles.hdrRow}>
@@ -857,12 +921,7 @@ function GanttHeader({
           </select>
         </div>
         {days.map(d => {
-          const wd = weatherByDate.get(d.iso);
-          const Icon = weatherCodeToIcon(wd?.weather_code);
-          const risk = evaluateDroneRisk(wd, thresholds);
-          const tip = wd
-            ? `${Math.round(wd.temp_min)}° / ${Math.round(wd.temp_max)}° · ${wd.precip_prob_max}% csapadék · max szél ${Math.round(wd.wind_speed_max)} m/s`
-            : 'Nincs előrejelzés';
+          const w = weatherByDayIso.get(d.iso)!;
           return (
             <button
               key={d.iso}
@@ -871,13 +930,13 @@ function GanttHeader({
               className={clsx(
                 styles.weatherCell,
                 d.isWeekend && styles.weatherCellWeekend,
-                risk === 'caution' && styles.weatherCellCaution,
-                risk === 'danger' && styles.weatherCellDanger,
+                w.risk === 'caution' && styles.weatherCellCaution,
+                w.risk === 'danger' && styles.weatherCellDanger,
               )}
               style={{ width: dayWidth }}
-              title={tip}
+              title={w.tip}
             >
-              {Icon ? <Icon className="w-3.5 h-3.5" strokeWidth={1.6} /> : <span style={{ opacity: 0.25, fontSize: 10 }}>—</span>}
+              {w.Icon ? <w.Icon className="w-3.5 h-3.5" strokeWidth={1.6} /> : <span style={{ opacity: 0.25, fontSize: 10 }}>—</span>}
             </button>
           );
         })}
@@ -951,7 +1010,13 @@ interface DragState {
 const LANE_H_FOR_LIFT = LANE_H;
 const LIFT_THRESHOLD_PX = 24;     // ennyit kell felhúzni vertikálisan a lift-aktiváláshoz
 
-function ProjectRow({
+// P4 (#9): ProjectRow React.memo — a nem-érintett projektek (24/25 drop-nál a
+// plane-cache miatt) HELYES props-tal jönnek: azonos plane-ref, days-ref, callback-ek,
+// stb. Így a memo skipel, ProjectRow BODY futása is elmarad → tucatnyi useMemo
+// dep-check + 70 TaskBar-createElement + reconciler-walking mind kimarad.
+// A callsite (MeetingView) `useCallback`-kel stabilizálja az összes inline
+// arrow-callback-et — enélkül a memo nem tudna hit-elni.
+const ProjectRow = React.memo(function ProjectRow({
   plane,
   days,
   today,
@@ -1020,7 +1085,15 @@ function ProjectRow({
   openPingId: string | null;
   onOpenPing: (id: string | null) => void;
 }) {
-  const allFlatTasks = plane.lanes.flatMap((lane, idx) => lane.map(t => ({ ...t, _laneIdx: idx })));
+  // P1 — plane.lanes-en át flat-map minden task-ra, sáv-index-szel. `useMemo` kell,
+  // mert az object-spread (`...t, _laneIdx`) minden render-ben új referenciákat épít,
+  // ami elrontaná a lentebbi `React.memo(TaskBar)`-t: a `task` prop-referencia
+  // változna minden setDrag() RAF-tickre, még akkor is, ha az adat egyáltalán nem
+  // változott. `plane.lanes` a szülőtől jön stabilan (SWR cache).
+  const allFlatTasks = useMemo(
+    () => plane.lanes.flatMap((lane, idx) => lane.map(t => ({ ...t, _laneIdx: idx }))),
+    [plane.lanes],
+  );
   const totalDays = daysAhead + daysBehind;
 
   // ── Drag state (pointer events) ───────────────────────────────
@@ -1035,6 +1108,49 @@ function ProjectRow({
     for (const t of allFlatTasks) m.set(t.id, t);
     return m;
   }, [allFlatTasks]);
+
+  // P1 — Per-task derived-value lookup mapok (warnings + visual status).
+  //
+  // A régi render-map minden task-ra `getTaskWarnings(t, overview.tasks, ...)`-t
+  // hívott, ami MAGA is O(N)-t iterál az összes task-on → a teljes render O(N²).
+  // Drag közben (setDrag() RAF-onként) ez másodpercenként max 60-szor lefut →
+  // észrevehető input-latency 40+ task-nál. Precomputáljuk egyszer per data-change,
+  // és a render-map csak O(1) lookup-ot csinál.
+  //
+  // Deps: minden bemenet stabil per SWR-fetch — a `drag` state NEM benne van,
+  // szóval drag-tick-en NEM újraszámolódik.
+  const warningsByTaskId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const t of allFlatTasks) {
+      map.set(
+        t.id,
+        getTaskWarnings(
+          t,
+          overview.people,
+          overview.equipment,
+          overview.tasks,
+          overview.dayAnnotations,
+          overview.projects,
+        ).length,
+      );
+    }
+    return map;
+  }, [
+    allFlatTasks,
+    overview.people,
+    overview.equipment,
+    overview.tasks,
+    overview.dayAnnotations,
+    overview.projects,
+  ]);
+
+  const visualStatusByTaskId = useMemo(() => {
+    const map = new Map<string, TaskVisualStatus>();
+    for (const t of allFlatTasks) {
+      map.set(t.id, computeVisualStatus(t, today, slippingIds));
+    }
+    return map;
+  }, [allFlatTasks, today, slippingIds]);
   // A drag-aktiválást felfelé propagáljuk: amíg aktív, az SWR-revalidate ki van
   // kapcsolva (lásd useDashboardOverview pauseRevalidation), különben az SSE/focus
   // event egy stale értékre cserélné a bar-t mid-drop, és „rugózna vissza".
@@ -1050,9 +1166,36 @@ function ProjectRow({
   // a collapsed projekt csak a 0. sávot mutatja.
   const dragActive = drag?.activated === true;
   const effectiveCollapsed = isCollapsed && plane.numLanes > 1 && !dragActive;
-  const flatTasks = effectiveCollapsed
-    ? allFlatTasks.filter(t => t._laneIdx === 0)
-    : allFlatTasks;
+  const flatTasks = useMemo(
+    () => (effectiveCollapsed ? allFlatTasks.filter(t => t._laneIdx === 0) : allFlatTasks),
+    [allFlatTasks, effectiveCollapsed],
+  );
+
+  // P1 — Off-screen coarse pre-filter.
+  //
+  // A TaskBar-on belül van egy pontos culling (`effectiveLeftDays + visualWidth < 0 || > window`),
+  // ami visszaad `null`-t, DE a null-return ELŐTT lefut a `useT()` + a leftDays /
+  // widthDays / cellLeft számolás. A memo skipel ugyan render-nél, de a KEZDETI
+  // renderben (és data-change után) minden task-ra végigfut a computation.
+  //
+  // Konzervatív ±30 nap margóval szűrünk itt — push-cascade és 1 sávos jobbra-húzás
+  // ilyen távolságra nem jut el, így a látható halmazba nem szólunk bele. A drag
+  // közben ez NEM változik újra (deps: flatTasks, today, daysBehind, daysAhead).
+  const visibleFlatTasks = useMemo(() => {
+    const margin = 30;
+    const min = -margin;
+    const max = daysAhead + daysBehind + margin;
+    return flatTasks.filter(t => {
+      if (!t.startDate) return false;
+      const taskStart = parseDate(t.startDate);
+      const leftDays = diffDays(taskStart, today);
+      const isGepido = t.taskType === 'gepido';
+      const workingDays = Number(t.duration ?? 1);
+      const widthDays = isGepido ? workingDays : visualWidthDays(taskStart, workingDays);
+      const cellLeft = leftDays + daysBehind;
+      return cellLeft + widthDays >= min && cellLeft <= max;
+    });
+  }, [flatTasks, today, daysBehind, daysAhead]);
   // Rejtett task-ok (lane > 0) — collapsed-ban NEM renderelődnek, de a
   // hely-jelölő csíkjuk igen, az alsó sáv aljához igazítva.
   const hiddenTasks = effectiveCollapsed
@@ -1182,6 +1325,42 @@ function ProjectRow({
     setDrag(state);
     dragRef.current = state;
   }
+
+  // P1 — TaskBar handlers dispatcher (stabil referencia, latest-ref pattern).
+  //
+  // A `React.memo(TaskBar)` csak akkor működik, ha a props-referenciák stabilak
+  // renderek között. A callback-eket ezért egyszer építjük fel (empty deps
+  // `useMemo`), és a legfrissebb `startDrag` / `onTaskClick` / `onTaskMutate`
+  // referenciát ref-en át olvassuk (`ref.current = xxx` in render → mindig
+  // friss). Így a 4 tick-anként új inline lambdák nem terhelnek le tucatnyi
+  // TaskBar-t, a memo tényleg skipel.
+  const startDragRef = useRef(startDrag);
+  startDragRef.current = startDrag;
+  const onTaskClickRef = useRef(onTaskClick);
+  onTaskClickRef.current = onTaskClick;
+  const onTaskMutateRef = useRef(onTaskMutate);
+  onTaskMutateRef.current = onTaskMutate;
+
+  const taskBarHandlers = useMemo<TaskBarHandlers>(
+    () => ({
+      moveDown: (task, e) => startDragRef.current(e, task, 'move'),
+      resizeDown: (task, e) => startDragRef.current(e, task, 'resize'),
+      click: (task) => onTaskClickRef.current(task),
+      toggleDone: async (task) => {
+        const next = task.status === 'completed' ? 'in_progress' : 'completed';
+        try {
+          await updatePlanTask(task.id, { status: next });
+          await onTaskMutateRef.current();
+          toast.success(
+            next === 'completed' ? 'Task késznek jelölve' : 'Task visszaállítva folyamatban-ra',
+          );
+        } catch (err: any) {
+          toast.error(err?.response?.data?.message ?? 'Mentés sikertelen');
+        }
+      },
+    }),
+    [],
+  );
 
   /** Kaszkád-push: az érintett sávban sorban eltolja az útban lévő taskokat. */
   function computePushOffsetsFromRange(
@@ -1364,7 +1543,14 @@ function ProjectRow({
       // Pre-compute az új start/duration/lane-t, hogy az optimistic SWR-mutate
       // a backend-hívás ELŐTT alkalmazza — így a setDrag(null) NEM teszi vissza
       // a bar-t a régi helyére, mert a cache már a célállapotot mutatja.
-      const newStartIsoForDragged = hasHorizontalChange
+      //
+      // ⚠️ FONTOS: startDate CSAK move-nál változik! Resize-nál a startDate marad,
+      // csak a duration változik → a bal él a helyén marad, csak a jobb szél nyúlik.
+      // (Régebben `hasHorizontalChange` alapon shifted mindkettőnél → resize közben
+      // az optimistic-mutate a task-ot ELCSÚSZTATTA a resize deltájával, aztán a
+      // backend refetch visszaigazította — ami korábban maszkolta a bugot. A refetch
+      // eltávolítása után a rossz optimistic-állapot most már nem korrigálódik.)
+      const newStartIsoForDragged = (hasHorizontalChange && cur.mode === 'move')
         ? toStartDatePayload(
             shiftedStartDate(cur.origStartIso, cur.origTaskType, cur.deltaDays),
             cur.origTaskType,
@@ -1405,56 +1591,78 @@ function ProjectRow({
       // a backend lossy weekend-cross fixup ne rezegjen (lásd CSS / inline style).
       markRecentlyDropped(cur.taskId);
 
-      // Most már nyugodtan null-ozhatjuk a drag-et — a cache a célállapotot adja.
+      // P4 (drop-fix): setDrag(null) MOST SÜRGŐSSEL — NEM startTransition-ben!
+      // A `startTransition` deprioritizálta ezt, így pár frame-ig még "húzva"-ban
+      // maradt a bar → a lane-guide-ok látszottak → ha az egeret közben vertikálisan
+      // mozgattad, új sáv nyílt. A pointermove/up listener-cleanup useEffect-je is
+      // csak akkor fut le, ha ez a state-váltás elhagyta a React reconciler-t.
+      // Vagyis: drag-end sürgős-priority = azonnali cleanup.
       setDrag(null);
       dragRef.current = null;
 
-      try {
-        const pushUpdates = Object.entries(cur.pushed).map(([id, days]) => {
-          const target = tasksById.get(id);
-          if (!target?.startDate) return null;
-          return updatePlanTask(id, {
-            startDate: toStartDatePayload(shiftedStartDate(target.startDate, target.taskType, days), target.taskType),
-          });
-        }).filter(Boolean) as Promise<unknown>[];
+      // P3 — HTTP updates + revalidate FIRE-AND-FORGET.
+      // Eddig `await onTaskMutate()` blokkolta a onUp handlert amíg a backend
+      // válaszolt (~100-300ms) + újra fetchelt (~100-300ms) + újra rendert
+      // triggerezett (25 ProjectRow, ~100-200ms cascade). Ez volt a 0-FPS-lag
+      // fő oka drop pillanatában.
+      //
+      // Az optimistic cache már a célállapotot mutatja, ezért a UI szempontjából
+      // NINCS szükség blokkoló await-re. A HTTP-hívások és a revalidate a háttérben
+      // futnak; siker esetén silent no-op, hibánál toast + re-fetch.
+      (async () => {
+        try {
+          const pushUpdates = Object.entries(cur.pushed).map(([id, days]) => {
+            const target = tasksById.get(id);
+            if (!target?.startDate) return null;
+            return updatePlanTask(id, {
+              startDate: toStartDatePayload(shiftedStartDate(target.startDate, target.taskType, days), target.taskType),
+            });
+          }).filter(Boolean) as Promise<unknown>[];
 
-        if (cur.mode === 'move') {
-          const draggedPatch: Parameters<typeof updatePlanTask>[1] = {};
-          if (hasHorizontalChange && newStartIsoForDragged) {
-            draggedPatch.startDate = newStartIsoForDragged;
+          if (cur.mode === 'move') {
+            const draggedPatch: Parameters<typeof updatePlanTask>[1] = {};
+            if (hasHorizontalChange && newStartIsoForDragged) {
+              draggedPatch.startDate = newStartIsoForDragged;
+            }
+            if (hasLaneChange) {
+              draggedPatch.laneIndex = cur.targetLaneIndex;
+            }
+            const draggedUpdate = Object.keys(draggedPatch).length
+              ? [updatePlanTask(cur.taskId, draggedPatch)]
+              : [];
+            await Promise.all([
+              ...draggedUpdate,
+              ...pushUpdates,
+            ]);
+          } else {
+            // Resize. Pure inverseVisualWidthDays — semmi kerekítés, semmi
+            // +0.5 fudge. Mid-week az inverz egzakt → round-trip exact, a
+            // bar pontosan ott marad ahol elengedted. Weekend-keresztezésnél
+            // a (cal_span ↔ working) mapping lossy, de ott is a legközelebbi
+            // visszaképezhető működik (≤1 cella eltérés).
+            const newDur = newDurForDragged ?? durationForResize(cur);
+            await Promise.all([
+              updatePlanTask(cur.taskId, {
+                duration: newDur,
+                durationChangeReason: 'Drag-átméretezés a Gantt-on',
+              }),
+              ...pushUpdates,
+            ]);
           }
-          if (hasLaneChange) {
-            draggedPatch.laneIndex = cur.targetLaneIndex;
-          }
-          const draggedUpdate = Object.keys(draggedPatch).length
-            ? [updatePlanTask(cur.taskId, draggedPatch)]
-            : [];
-          await Promise.all([
-            ...draggedUpdate,
-            ...pushUpdates,
-          ]);
-        } else {
-          // Resize. Pure inverseVisualWidthDays — semmi kerekítés, semmi
-          // +0.5 fudge. Mid-week az inverz egzakt → round-trip exact, a
-          // bar pontosan ott marad ahol elengedted. Weekend-keresztezésnél
-          // a (cal_span ↔ working) mapping lossy, de ott is a legközelebbi
-          // visszaképezhető működik (≤1 cella eltérés).
-          const newDur = newDurForDragged ?? durationForResize(cur);
-          await Promise.all([
-            updatePlanTask(cur.taskId, {
-              duration: newDur,
-              durationChangeReason: 'Drag-átméretezés a Gantt-on',
-            }),
-            ...pushUpdates,
-          ]);
+          // P4 (drop-fix): SIKER ESETÉN NINCS explicit `onTaskMutate()`.
+          // Az optimistic-mutate már a helyes állapotot mutatja. A backend SSE-echo
+          // (`plan_task.updated`) egy MÉG EGY teljes refetch-et triggerezne, ami
+          // pár másodperccel a drop után a task random-ugrását eredményezte.
+          // A `drainSseUntil` 3s-ig elnyeli az SSE-echot. A backend-vezérelt
+          // finomítást (weekend-cross snap) a következő poll cycle (60s) vagy
+          // egy másik felhasználó változtatása hozza vissza — nem drop-hot-path.
+        } catch (err: any) {
+          toast.error(err?.response?.data?.message ?? 'Mozgatás sikertelen');
+          // Ha mentés-hiba → re-fetch hogy a vizuális pozíció valódi DB-állapotot mutasson.
+          // Az optimistic-mutate ezzel rollback-elődik a friss DB-állapotra.
+          void onTaskMutate();
         }
-        await onTaskMutate();
-      } catch (err: any) {
-        toast.error(err?.response?.data?.message ?? 'Mozgatás sikertelen');
-        // Ha mentés-hiba → re-fetch hogy a vizuális pozíció valódi DB-állapotot mutasson.
-        // Az optimistic-mutate ezzel rollback-elődik a friss DB-állapotra.
-        void onTaskMutate();
-      }
+      })();
     }
 
     window.addEventListener('pointermove', onMove);
@@ -1530,6 +1738,67 @@ function ProjectRow({
 
   const isBeingDragged = draggingProjectId === plane.project.id;
 
+  // P2 — Napi cellák JSX memoizálása.
+  //
+  // Ez a nagy per-frame nyereség: 730 napos táv × 20+ projekt-sor = ~14k
+  // vDOM elem `.map()`-ből, MINDEN setDrag() tick-en. Egyik prop sem függ a drag
+  // állapottól — a napi cellák és a projekt-specifikus vörös/kék jelölések
+  // vagy MEGVANNAK adott projekten vagy nem, drag közben nem változnak.
+  // A memoization drasztikusan levágja a per-tick React reconciliation-t.
+  const dayCells = useMemo(
+    () =>
+      days.map((d, i) => (
+        <div
+          key={d.iso}
+          className={clsx(
+            styles.colBg,
+            d.isWeekend && styles.weekend,
+            d.isToday && styles.today,
+            d.isPast && styles.past,
+            d.hasMunkaszunet && styles.munkaszunet,
+            projectDeadlineDates.has(d.iso) && styles.hatarido,
+            projectLegterStartDates.has(d.iso) && styles.legterStart,
+            projectLegterEndDates.has(d.iso) && styles.legterEnd,
+          )}
+          style={{ left: i * dayWidth }}
+        />
+      )),
+    [days, dayWidth, projectDeadlineDates, projectLegterStartDates, projectLegterEndDates],
+  );
+
+  // P2 — Rejtett task-hint csíkok memoizálása. Csak collapsed multi-lane projekten
+  // van hatása, egyébként `null`. Csak akkor változik, ha az adatok is változnak.
+  const hiddenTasksHints = useMemo(() => {
+    if (!effectiveCollapsed) return null;
+    return hiddenTasks.map(t => {
+      if (!t.startDate) return null;
+      const taskStart = parseDate(t.startDate);
+      const isGepido = t.taskType === 'gepido';
+      const workingDays = Number(t.duration ?? 1);
+      const widthDays = isGepido ? workingDays : visualWidthDays(taskStart, workingDays);
+      const cellLeft = diffDays(taskStart, today) + daysBehind;
+      if (cellLeft + widthDays < 0 || cellLeft > daysAhead + daysBehind) return null;
+      const clampedLeft = Math.max(0, cellLeft);
+      const clampedRight = Math.min(daysAhead + daysBehind, cellLeft + widthDays);
+      const widthPx = (clampedRight - clampedLeft) * dayWidth - 2;
+      if (widthPx <= 0) return null;
+      const stripColor = getTaskTypeColor(taskTypes, t.taskType) ?? '#f59e0b';
+      return (
+        <div
+          key={`hint-${t.id}`}
+          className={styles.hiddenTaskHint}
+          style={{
+            left: clampedLeft * dayWidth + 1,
+            width: widthPx,
+            top: LANE_H - 4,
+            background: stripColor,
+          }}
+          title={`${t.title || '(cím nélkül)'} — rejtett ${(t._laneIdx ?? 0) + 1}. sávban. Kattints a chevronra a kinyitáshoz.`}
+        />
+      );
+    });
+  }, [effectiveCollapsed, hiddenTasks, today, daysBehind, daysAhead, dayWidth, taskTypes]);
+
   return (
     <div className={styles.row} style={{ height: rowH }} data-flip-key={plane.project.id}>
       <button
@@ -1596,26 +1865,12 @@ function ProjectRow({
       <div
         className={styles.rowTracks}
         data-project-id={plane.project.id}
+        data-drag-active={drag?.activated ? 'true' : undefined}
         style={{ width: totalDays * dayWidth, height: rowH, backgroundColor: rowTint }}
         onClick={handleTrackClick}
         title="Kattints üres helyre új task hozzáadásához"
       >
-        {days.map((d, i) => (
-          <div
-            key={d.iso}
-            className={clsx(
-              styles.colBg,
-              d.isWeekend && styles.weekend,
-              d.isToday && styles.today,
-              d.isPast && styles.past,
-              d.hasMunkaszunet && styles.munkaszunet,
-              projectDeadlineDates.has(d.iso) && styles.hatarido,
-              projectLegterStartDates.has(d.iso) && styles.legterStart,
-              projectLegterEndDates.has(d.iso) && styles.legterEnd,
-            )}
-            style={{ left: i * dayWidth }}
-          />
-        ))}
+        {dayCells}
         {drag?.activated && drag.mode === 'move' && Array.from({ length: visibleLaneCount }).map((_, laneIdx) => (
           <div
             key={`lane-guide-${laneIdx}`}
@@ -1623,38 +1878,8 @@ function ProjectRow({
             style={{ top: laneIdx * LANE_H, height: LANE_H }}
           />
         ))}
-        {/* Rejtett task-ok időintervallum-csíkja a látható sáv ALATT.
-            Ha a projekt collapsed és vannak további lane-ek, minden rejtett
-            task egy keskeny csíkként jelölődik az intervallumában a 0. sáv
-            alján — vizuális emlékeztető, hogy a kinyitás után pontosan hol
-            lesz párhuzamos task. A szín a task-type szerint, fallback amber. */}
-        {effectiveCollapsed && hiddenTasks.map(t => {
-          if (!t.startDate) return null;
-          const taskStart = parseDate(t.startDate);
-          const isGepido = t.taskType === 'gepido';
-          const workingDays = Number(t.duration ?? 1);
-          const widthDays = isGepido ? workingDays : visualWidthDays(taskStart, workingDays);
-          const cellLeft = diffDays(taskStart, today) + daysBehind;
-          if (cellLeft + widthDays < 0 || cellLeft > daysAhead + daysBehind) return null;
-          const clampedLeft = Math.max(0, cellLeft);
-          const clampedRight = Math.min(daysAhead + daysBehind, cellLeft + widthDays);
-          const widthPx = (clampedRight - clampedLeft) * dayWidth - 2;
-          if (widthPx <= 0) return null;
-          const stripColor = getTaskTypeColor(taskTypes, t.taskType) ?? '#f59e0b';
-          return (
-            <div
-              key={`hint-${t.id}`}
-              className={styles.hiddenTaskHint}
-              style={{
-                left: clampedLeft * dayWidth + 1,
-                width: widthPx,
-                top: LANE_H - 4,
-                background: stripColor,
-              }}
-              title={`${t.title || '(cím nélkül)'} — rejtett ${(t._laneIdx ?? 0) + 1}. sávban. Kattints a chevronra a kinyitáshoz.`}
-            />
-          );
-        })}
+        {/* Rejtett task-ok időintervallum-csíkja — l. `hiddenTasksHints` useMemo. */}
+        {hiddenTasksHints}
         {/* Drop-rángatás végleges fix: ha a SWR refresh már beérkezett
             (a dragged task startDate/duration-je már a céllá változott
             az adatban), NE alkalmazzuk a drag-offsetet — különben a bar
@@ -1666,9 +1891,10 @@ function ProjectRow({
             draggedTask.startDate !== drag.origStartIso ||
             Number(draggedTask.duration ?? 1) !== drag.origDurationDays
           ));
-          return flatTasks.map(task => {
-          const status = computeVisualStatus(task, today, slippingIds);
-          const warnings = getTaskWarnings(task, overview.people, overview.equipment, overview.tasks, overview.dayAnnotations, overview.projects).length;
+          return visibleFlatTasks.map(task => {
+          // P1 — precomputed lookup helyett a régi O(N²)-es getTaskWarnings/computeVisualStatus.
+          const status = visualStatusByTaskId.get(task.id) ?? 'normal';
+          const warnings = warningsByTaskId.get(task.id) ?? 0;
           const isDragged = drag?.taskId === task.id && drag.activated && !dataAlreadyApplied;
           const isPushed = !isDragged && drag?.activated && !dataAlreadyApplied && drag.pushed[task.id] != null;
           // A húzott bar a nyers deltát követi (sima 1:1), a tolt szomszédok a
@@ -1693,19 +1919,7 @@ function ProjectRow({
               daysBehind={daysBehind}
               dragOffsetDays={dragOffsetForThis}
               dragMode={dragModeForThis}
-              onMoveDown={e => startDrag(e, task, 'move')}
-              onResizeDown={e => startDrag(e, task, 'resize')}
-              onClick={() => onTaskClick(task)}
-              onToggleDone={async () => {
-                const next = task.status === 'completed' ? 'in_progress' : 'completed';
-                try {
-                  await updatePlanTask(task.id, { status: next });
-                  await onTaskMutate();
-                  toast.success(next === 'completed' ? 'Task késznek jelölve' : 'Task visszaállítva folyamatban-ra');
-                } catch (err: any) {
-                  toast.error(err?.response?.data?.message ?? 'Mentés sikertelen');
-                }
-              }}
+              handlers={taskBarHandlers}
               isDragging={isDragged}
               isPushed={isPushed}
               taskTypes={taskTypes}
@@ -1738,7 +1952,7 @@ function ProjectRow({
       </div>
     </div>
   );
-}
+});
 
 /**
  * Időzített ping ikon a Gantt projekt-soron. Hover-en tooltip (cím),
@@ -2714,11 +2928,17 @@ const DAY_TYPE_COLOR: Record<DayAnnotationType, string> = {
 function DayModal({
   date,
   overview,
+  visibleProjects,
   onClose,
   onSaved,
 }: {
   date: string | null;
   overview: DashboardOverview;
+  /** A Gantt-Map-en ténylegesen látható projektek, a soron-belüli sorrendben.
+   * A hatarido / legter select-jei ezt használják, nem az `overview.projects`
+   * teljes tenant-listáját (ami 100-1000 sor is lehet). Fallback minden project-re
+   * ha `undefined` (más hívó nem-Gantt-context-ből is jöhet). */
+  visibleProjects?: DashboardProject[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -3147,7 +3367,7 @@ function DayModal({
               <div className={styles.formLabel}>{t.meeting.dayModal.hataridoProjectLabel}</div>
               <select className={styles.formSelect} value={projectId} onChange={e => setProjectId(e.target.value)}>
                 <option value="">—</option>
-                {overview.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {(visibleProjects ?? overview.projects).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
           </>
@@ -3170,7 +3390,7 @@ function DayModal({
               <div className={styles.formLabel}>{t.meeting.dayModal.legterProjectLabel}</div>
               <select className={styles.formSelect} value={projectId} onChange={e => setProjectId(e.target.value)}>
                 <option value="">—</option>
-                {overview.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                {(visibleProjects ?? overview.projects).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
             <div className={styles.formRow}>
@@ -3520,14 +3740,13 @@ function NewTaskModal({
         duration: form.duration,
         equipmentIds: form.equipmentIds.length > 0 ? form.equipmentIds : undefined,
       });
-      // Task-típushoz kötött vizuális visszajelzés (Projekt map task-típusok).
       if (form.taskType === 'szamlazas') {
         void import('@/lib/animations/money-rain').then(m => m.triggerMoneyRain());
-      } else if (form.taskType === 'drone' || form.taskType === 'helyszin' || form.taskType === 'geodezia') {
+      } else if (form.taskType === 'terep') {
         void import('@/lib/animations/drone-swarm').then(m => m.triggerDroneSwarm());
-      } else if (form.taskType === 'gepido' || form.taskType === 'feldolgozas' || form.taskType === 'modellezes') {
+      } else if (form.taskType === 'gepido') {
         void import('@/lib/animations/machine-time').then(m => m.triggerMachineTime());
-      } else if (form.taskType === 'egyeztetes' || form.taskType === 'atadas' || form.taskType === 'qa') {
+      } else if (form.taskType === 'iroda') {
         void import('@/lib/animations/office-workflow').then(m => m.triggerOfficeWorkflow());
       }
       try {
@@ -3571,14 +3790,13 @@ function NewTaskModal({
         duration: form.duration,
         equipmentIds: form.equipmentIds.length > 0 ? form.equipmentIds : undefined,
       });
-      // Task-típushoz kötött vizuális visszajelzés (Projekt map task-típusok).
       if (form.taskType === 'szamlazas') {
         void import('@/lib/animations/money-rain').then(m => m.triggerMoneyRain());
-      } else if (form.taskType === 'drone' || form.taskType === 'helyszin' || form.taskType === 'geodezia') {
+      } else if (form.taskType === 'terep') {
         void import('@/lib/animations/drone-swarm').then(m => m.triggerDroneSwarm());
-      } else if (form.taskType === 'gepido' || form.taskType === 'feldolgozas' || form.taskType === 'modellezes') {
+      } else if (form.taskType === 'gepido') {
         void import('@/lib/animations/machine-time').then(m => m.triggerMachineTime());
-      } else if (form.taskType === 'egyeztetes' || form.taskType === 'atadas' || form.taskType === 'qa') {
+      } else if (form.taskType === 'iroda') {
         void import('@/lib/animations/office-workflow').then(m => m.triggerOfficeWorkflow());
       }
       onSaved();
@@ -4923,7 +5141,7 @@ export function MeetingView({
   // mutate-elő optimistic commit ELŐTT, visszadobná a barr-t a régi helyére
   // ("rugózik vissza" effekt).
   const [isDraggingTask, setIsDraggingTask] = useState(false);
-  const { overview: rawOverview, isLoading, mutate } = useDashboardOverview(undefined, undefined, {
+  const { overview: rawOverview, isLoading, mutate, drainSseUntil } = useDashboardOverview(undefined, undefined, {
     pauseRevalidation: isDraggingTask,
   });
   const overview = useMemo(() => rawOverview ? augmentWithPcs(rawOverview) : null, [rawOverview]);
@@ -4972,10 +5190,14 @@ export function MeetingView({
         },
         { revalidate: false },
       );
+      // P4 (#5): Az SSE-echo a backend PATCH utáni ~500ms-ban `plan_task.updated`-et
+      // fog küldeni. A `drainSseUntil` biztosítja, hogy azt az egy eventet elnyeljük,
+      // nem teljes refetch-be csapódjunk. 3s ablak → biztosan lefedi a network-latency-t.
+      drainSseUntil(Date.now() + 3000);
     },
-    [mutate],
+    [mutate, drainSseUntil],
   );
-  const clock = useLiveClock();
+  // P3 — clock levált <LiveClock />-re, MeetingView-ben már nincs 1 mp-es tick.
   const [sideOpen, setSideOpen] = useState(false);
   const { currentUser } = useCurrentUser();
   const [viewMode, setViewMode] = useState<'shared' | 'mine'>(() => {
@@ -5043,6 +5265,12 @@ export function MeetingView({
   }, []);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [newTaskDefaults, setNewTaskDefaults] = useState<{ projectId?: string; startDate?: string }>({});
+  // P4 (#9): Stabil `onEmptyClick` — enélkül minden render új inline lambda,
+  // ami a ProjectRow React.memo-t megtörné (props-referencia változás).
+  const handleEmptyClick = useCallback((projectId: string, startDate: string) => {
+    setNewTaskDefaults({ projectId, startDate });
+    setNewTaskOpen(true);
+  }, []);
   const [newTaskTemplateContext, setNewTaskTemplateContext] = useState<{ fromTaskTitle: string; offsetDays: number } | undefined>(undefined);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [newPingOpen, setNewPingOpen] = useState(false);
@@ -5131,27 +5359,63 @@ export function MeetingView({
     return () => document.removeEventListener('wheel', onWheel, { capture: true } as any);
   }, []);
 
+  // P3 — deps szűkítve `overview.dayAnnotations`-re (nem az egész overview-re).
+  // Az optimistic-mutate a drop-nál `overview.tasks`-t cseréli új refre; ha itt
+  // `overview` a dep, a 730-napos `buildDays()` mind a 25 ProjectRow-nak új
+  // `days`-referenciát ad → dayCells memo szét van vágva → 18k JSX-alloc.
+  // A `dayAnnotations` viszont drop-pillanatban NEM változik.
   const days = useMemo(
     () => overview ? buildDays(today, overview.dayAnnotations, daysAhead, daysBehind) : [],
-    [overview, today, daysAhead, daysBehind],
+    [overview?.dayAnnotations, today, daysAhead, daysBehind],
   );
+  // P3 — Planes per-project cache. Drop-cascade-kor `overview.tasks` új array-lesz
+  // (optimistic-mutate `{...cur, tasks: nextTasks}`-el), DE a nem-érintett task-ok
+  // referenciái megőrződnek (`cur.tasks.map(t => t.id === changed ? patched : t)`).
+  // Így a projektenkénti task-tömb tartalma referenciailag egyezik minden ÉRINTETLEN
+  // projektnél → plane-cache-hit → ProjectRow allFlatTasks memo-hit → nincs
+  // cascade re-render 24/25 sornál. Csak az érintett 1-2 plane épül újra.
+  const planesCacheRef = useRef<Map<string, { tasks: DashboardTask[]; plane: ProjectLane }>>(new Map());
   const planes = useMemo(
     () => {
       if (!overview) return [];
-      const all = buildProjectLanes(overview, today);
-      // Ha categoryId meg van adva (szoba-szintű Gantt a /rooms-ban), csak az
-      // adott szoba projektjeit mutatjuk — overrideolva a scope-szűrést.
-      // Egyébként scope-alapján: a /meeting (project) elrejti a OfficeAdmin-
-      // kategóriát; a /office-admin csak ezeket mutatja. A workplan logikája
-      // SZÁNDÉKOSAN figyelembe veszi mindkettő scope task-jait, hogy a napi
-      // terhelés-nézet teljes legyen — ezt a `computeWorkPlanForDay` az
-      // `overview.tasks` egészével dolgozza, scope-tól függetlenül.
+      // Task-ok projektenkénti csoportosítása egyszer, O(N).
+      const tasksByProjectId = new Map<string, DashboardTask[]>();
+      for (const t of overview.tasks) {
+        if (!t.startDate || !t.projectId) continue;
+        const arr = tasksByProjectId.get(t.projectId);
+        if (arr) arr.push(t);
+        else tasksByProjectId.set(t.projectId, [t]);
+      }
+
+      const prev = planesCacheRef.current;
+      const next = new Map<string, { tasks: DashboardTask[]; plane: ProjectLane }>();
+
+      const all: ProjectLane[] = overview.projects.map((project, idx) => {
+        const projectTasks = tasksByProjectId.get(project.id) ?? [];
+        const cached = prev.get(project.id);
+
+        // Cache-hit: cached.tasks referenciák egyeznek az új projectTasks-szel.
+        // Optimistic-mutate ezt biztosítja az érintetlen projekteknél. Az érintett
+        // projektnél a húzott task új objref-fel jön → cache-miss → rebuild.
+        if (
+          cached
+          && cached.tasks.length === projectTasks.length
+          && cached.tasks.every((t, i) => t === projectTasks[i])
+        ) {
+          next.set(project.id, cached);
+          return cached.plane;
+        }
+
+        const plane = buildSingleProjectLane(project, projectTasks, idx);
+        next.set(project.id, { tasks: projectTasks, plane });
+        return plane;
+      });
+
+      planesCacheRef.current = next;
+
       if (categoryId) {
         return all.filter(p => p.project.categoryId === categoryId);
       }
-      // Projekt map (scope) szűrés: a kategória-szintű `showInProjectMap=false`
-      // projekteket (pl. Drón ügyintézés szoba) kihagyjuk — azok csak a /rooms
-      // szobában (categoryId-override ág) látszanak.
       return all.filter(p =>
         p.project.showInProjectMap !== false &&
         (scope === 'office'
@@ -5159,7 +5423,10 @@ export function MeetingView({
           : p.project.categoryType !== 'OfficeAdmin'),
       );
     },
-    [overview, today, scope, categoryId],
+    // Deps: `overview?.projects` és `overview?.tasks` külön — nem az egész `overview`.
+    // Így ha csak `overview.people` változik (augmentWithPcs spread-artifact), NEM
+    // számolunk újra. Optimistic-mutate `overview.tasks`-t cseréli → itt trigger.
+    [overview?.projects, overview?.tasks, today, scope, categoryId],
   );
 
   // Auto-collapse logika: minden új multi-lane projektet először-bezárt
@@ -5341,6 +5608,10 @@ export function MeetingView({
       setPendingOrderIds(null);
     }
   }, [pendingOrderIds, mutate, t]);
+  // P3 — deps szűkítve `overview.tasks`-re (`overview.people/equipment/annotations`
+  // nem érdekel). Elkerüli a fölösleges Set-újraépítést, amikor csak nem-task adat
+  // változik. Optimistic-mutate esetén `tasks` referencia MÉGIS változik (új array),
+  // ezért a Set MÉG mindig újraépül drop-nál — de ez O(70) iteráció, cheap.
   const slippingIds = useMemo(() => {
     if (!overview) return new Set<string>();
     const set = new Set<string>();
@@ -5352,15 +5623,25 @@ export function MeetingView({
       }
     }
     return set;
-  }, [overview, today]);
+  }, [overview?.tasks, today]);
 
   const statusText = useMemo(() => {
     if (!overview) return t.meeting.controlbar.statusEmpty;
-    const slipping = Array.from(slippingIds).length;
-    const active = overview.tasks.filter(task => task.status === 'pending' || task.status === 'in_progress').length;
-    const done = overview.tasks.filter(task => task.status === 'completed').length;
-    return t.meeting.controlbar.statusFmt(overview.projects.length, active, slipping, done);
-  }, [overview, slippingIds, t]);
+    // Projekt-szám: a scope/kategória-filter után látható lane-ek darabja
+    // (nem az `overview.projects.length` = teljes non-archived), mert az
+    // félrevezető volt: a user "3463 projekt"-et olvasott, miközben a
+    // Projekt map-en (showInProjectMap + categoryType filter után) tényleg
+    // csak pár száz látszik. Az `orderedPlanes` a végleges render-lista.
+    const visibleProjectIds = new Set(orderedPlanes.map(p => p.project.id));
+    const visibleTasks = overview.tasks.filter(t => t.projectId && visibleProjectIds.has(t.projectId));
+    const slipping = Array.from(slippingIds).filter(id => {
+      const task = overview.tasks.find(t => t.id === id);
+      return task?.projectId && visibleProjectIds.has(task.projectId);
+    }).length;
+    const active = visibleTasks.filter(task => task.status === 'pending' || task.status === 'in_progress').length;
+    const done = visibleTasks.filter(task => task.status === 'completed').length;
+    return t.meeting.controlbar.statusFmt(orderedPlanes.length, active, slipping, done);
+  }, [overview, slippingIds, orderedPlanes, t]);
 
   if (isLoading && !overview) {
     return (
@@ -5449,8 +5730,7 @@ export function MeetingView({
         </div>
 
         <div>
-          <div className={styles.clock}>{clock.time}</div>
-          <div className={styles.date}>{clock.date}</div>
+          <LiveClock />
         </div>
       </div>
 
@@ -5477,12 +5757,9 @@ export function MeetingView({
               days={days}
               today={today}
               overview={overview}
-              onTaskClick={t => setTaskModal(t)}
-              onProjectClick={p => setProjectModal(p)}
-              onEmptyClick={(projectId, startDate) => {
-                setNewTaskDefaults({ projectId, startDate });
-                setNewTaskOpen(true);
-              }}
+              onTaskClick={setTaskModal}
+              onProjectClick={setProjectModal}
+              onEmptyClick={handleEmptyClick}
               onTaskMutate={mutate}
               onOptimisticMutate={optimisticTaskMutate}
               onDragActiveChange={setIsDraggingTask}
@@ -5492,7 +5769,7 @@ export function MeetingView({
               daysBehind={daysBehind}
               draggable={viewMode === 'shared'}
               draggingProjectId={draggingProjectId}
-              onProjectDragStart={(id) => setDraggingProjectId(id)}
+              onProjectDragStart={setDraggingProjectId}
               onProjectDragEnd={handleProjectDragEnd}
               onProjectDragOver={handleProjectDragOver}
               taskTypes={taskTypes}
@@ -5594,7 +5871,7 @@ export function MeetingView({
           }}
         />
       )}
-      {dayModal && <DayModal date={dayModal} overview={overview} onClose={() => setDayModal(null)} onSaved={() => mutate()} />}
+      {dayModal && <DayModal date={dayModal} overview={overview} visibleProjects={orderedPlanes.map(p => p.project)} onClose={() => setDayModal(null)} onSaved={() => mutate()} />}
       {weatherDayIso && (
         <WeatherDayModal
           dateIso={weatherDayIso}

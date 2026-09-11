@@ -163,6 +163,13 @@ export function useDashboardOverview(from?: string, to?: string, options: UseDas
   const pauseRef = useRef(pauseRevalidation);
   pauseRef.current = pauseRevalidation;
 
+  // A hívó (MeetingView) rövid időre elnyelheti a saját művelete által kiváltott
+  // SSE-echot (plan_task.updated). A demóban nincs élő SSE (IS_DEMO-guard), no-op.
+  const suppressSseUntilRef = useRef<number>(0);
+  const drainSseUntil = (untilMs: number) => {
+    if (untilMs > suppressSseUntilRef.current) suppressSseUntilRef.current = untilMs;
+  };
+
   const { data, error, isLoading, mutate } = useSWR<DashboardOverview>(url, fetcher, {
     // SSE pushes trigger sub-second refresh; 60s polling is a cheap safety net
     // if the stream drops (network hiccup, proxy timeout). Drag közben (pauseRevalidation)
@@ -182,6 +189,7 @@ export function useDashboardOverview(from?: string, to?: string, options: UseDas
     // Drag közben skip — különben a saját optimistic update-ünket overrideolná
     // a stale DB-állapotot mutató SSE-trigger refetch.
     if (pauseRef.current) return;
+    if (type.startsWith('plan_task.') && Date.now() < suppressSseUntilRef.current) return;
     mutate();
     if (type.startsWith('plan_task.') || type.startsWith('project.') || type.startsWith('crm-task.')) {
       void globalMutate(key => typeof key === 'string' && key.startsWith('/projects'));
@@ -196,7 +204,7 @@ export function useDashboardOverview(from?: string, to?: string, options: UseDas
     }
   });
 
-  return { overview: data ?? null, error, isLoading, mutate };
+  return { overview: data ?? null, error, isLoading, mutate, drainSseUntil };
 }
 
 /**
