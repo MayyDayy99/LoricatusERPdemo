@@ -18,7 +18,7 @@ import { clsx } from 'clsx';
 import {
   Search, Filter, Bookmark, Trash2, X, GitMerge,
   ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
-  Upload as UploadIcon, AlertCircle, RefreshCw, ArrowUpRight,
+  Upload as UploadIcon, AlertCircle, RefreshCw, ArrowUpRight, Eye, Share2,
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import {
@@ -274,6 +274,110 @@ function BulkEditModal({
   );
 }
 
+// ─── Searchable projekt-választó ─────────────────────────────────────────────
+//
+// A native `<select>` áttekinthetetlen 100+ projekt esetén (nincs keresés,
+// hosszú lista). Ez az input + filtered dropdown megoldás: gépelés közben szűr,
+// kattintás a listáról zár + set-el. Nincs külső combobox dependency.
+
+function ProjectPicker({
+  projects, value, onChange, placeholder,
+}: {
+  projects: Array<{ id: string; name: string }>;
+  value: string | null;
+  onChange: (id: string | null) => void;
+  placeholder: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const selected = projects.find(p => p.id === value);
+  const filtered = useMemo(() => {
+    if (!query.trim()) return projects;
+    const q = query.toLowerCase();
+    return projects.filter(p => p.name.toLowerCase().includes(q));
+  }, [projects, query]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative min-w-[240px]" data-project-picker>
+      <button
+        type="button"
+        onClick={() => { setOpen(o => !o); setQuery(''); }}
+        className={clsx(
+          'w-full flex items-center justify-between gap-2 border rounded-lg px-3 py-2.5 text-sm bg-white',
+          value ? 'border-gray-200 text-gray-800' : 'border-amber-300 text-amber-800 bg-amber-50',
+        )}
+        aria-label="Drop-zone projekt"
+      >
+        <span className="truncate">
+          {selected?.name ?? placeholder}
+        </span>
+        <ChevronDown className="w-4 h-4 shrink-0 text-gray-400" />
+      </button>
+      {open && (
+        <div className="absolute z-30 top-full mt-1 right-0 w-[360px] max-w-[90vw] bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">
+          <div className="p-2 border-b border-gray-100">
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                autoFocus
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Keresés név alapján…"
+                className="w-full pl-8 pr-2 py-1.5 text-sm border border-gray-200 rounded"
+              />
+            </div>
+          </div>
+          <div className="max-h-72 overflow-y-auto">
+            {value && (
+              <button
+                type="button"
+                onClick={() => { onChange(null); setOpen(false); }}
+                className="w-full text-left px-3 py-2 text-xs text-gray-500 hover:bg-gray-50 border-b border-gray-100"
+              >
+                × Kiválasztás törlése
+              </button>
+            )}
+            {filtered.length === 0 ? (
+              <p className="px-3 py-6 text-xs text-gray-400 text-center">Nincs találat</p>
+            ) : (
+              filtered.slice(0, 100).map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => { onChange(p.id); setOpen(false); }}
+                  className={clsx(
+                    'w-full text-left px-3 py-2 text-sm hover:bg-brand-50 transition',
+                    value === p.id && 'bg-brand-50 text-brand-800 font-medium',
+                  )}
+                >
+                  {p.name}
+                </button>
+              ))
+            )}
+            {filtered.length > 100 && (
+              <p className="px-3 py-2 text-xs text-gray-400 border-t border-gray-100">
+                +{filtered.length - 100} további találat — pontosítsd a keresést
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Drop-zone ────────────────────────────────────────────────────────────────
 //
 // Egyszerű HTML5 drag-drop region, NINCS külső dependency. A native-fájlból
@@ -343,17 +447,31 @@ function DropZone({
     if (inputRef.current) inputRef.current.value = '';
   };
 
+  const handleZoneClick = () => {
+    if (!projectId) {
+      // A user rákattintott a drop-zóna-ra, de nincs projekt kiválasztva.
+      // Ahelyett hogy csendben eldobnánk (a régi viselkedés — semmi nem történt),
+      // átvisszük a fókuszt a fejléc-projekt-választóra, hogy egyértelmű legyen mi hiányzik.
+      const picker = document.querySelector('[data-project-picker] button') as HTMLButtonElement | null;
+      picker?.click();
+      picker?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
+    inputRef.current?.click();
+  };
+
   return (
     <div
-      onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+      onDragOver={(e) => { e.preventDefault(); if (projectId) setIsDragging(true); }}
       onDragLeave={() => setIsDragging(false)}
       onDrop={handleDrop}
       className={clsx(
         'rounded-xl border-2 border-dashed p-6 text-center transition cursor-pointer',
-        isDragging ? 'border-brand-400 bg-brand-50' : 'border-gray-200 bg-gray-50/50 hover:border-brand-300',
-        !projectId && 'opacity-60',
+        isDragging && 'border-brand-400 bg-brand-50',
+        !isDragging && projectId && 'border-gray-200 bg-gray-50/50 hover:border-brand-300',
+        !isDragging && !projectId && 'border-amber-300 bg-amber-50/70 hover:bg-amber-50',
       )}
-      onClick={() => projectId && inputRef.current?.click()}
+      onClick={handleZoneClick}
     >
       <input
         ref={inputRef}
@@ -362,9 +480,21 @@ function DropZone({
         onChange={handlePickFile}
         disabled={!projectId || uploading}
       />
-      <UploadIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-      <p className="text-sm font-medium text-gray-700">{t.uploads.dropHere}</p>
-      <p className="text-xs text-gray-400 mt-1">{t.uploads.dropHint}</p>
+      {!projectId ? (
+        <>
+          <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
+          <p className="text-sm font-semibold text-amber-800">Válassz projektet előbb!</p>
+          <p className="text-xs text-amber-700 mt-1">
+            A fejlécben jobbra fent, a "Duplikátumok" gomb mellett. Kattints ide a megnyitáshoz.
+          </p>
+        </>
+      ) : (
+        <>
+          <UploadIcon className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+          <p className="text-sm font-medium text-gray-700">{t.uploads.dropHere}</p>
+          <p className="text-xs text-gray-400 mt-1">{t.uploads.dropHint}</p>
+        </>
+      )}
       {progress && (
         <div className="mt-3 inline-flex items-center gap-1.5 text-xs text-blue-700">
           <RefreshCw className="w-3 h-3 animate-spin" /> {progress}
@@ -583,17 +713,12 @@ export default function UploadsPage() {
             <GitMerge className="w-4 h-4" />
             {t.uploads.duplicatesLink}
           </Link>
-          <select
-            className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-600"
-            value={activeProjectId ?? ''}
-            onChange={(e) => setActiveProjectId(e.target.value || null)}
-            aria-label="Drop-zone projekt"
-          >
-            <option value="">{t.common.selectProject}</option>
-            {projects?.map((p: any) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+          <ProjectPicker
+            projects={projects ?? []}
+            value={activeProjectId}
+            onChange={setActiveProjectId}
+            placeholder={t.common.selectProject}
+          />
         </div>
       </div>
 
@@ -922,7 +1047,7 @@ export default function UploadsPage() {
                     </td>
                     <td className="px-4 py-3 max-w-xs">
                       <Link href={`/uploads/${u.id}`}
-                        className="font-medium text-gray-900 hover:text-brand-600 transition truncate block"
+                        className="font-medium text-brand-600 hover:text-brand-700 hover:underline transition truncate block"
                         title={u.originalName ?? u.fileName}
                       >
                         {u.originalName ?? u.fileName}
@@ -950,11 +1075,24 @@ export default function UploadsPage() {
                       {new Date(u.createdAt).toLocaleDateString('hu-HU')}
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-1">
                         <Link href={`/uploads/${u.id}`}
-                          className="text-gray-400 hover:text-brand-600 transition" title="Megnyitás">
-                          <ArrowUpRight className="w-4 h-4" />
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-gray-200 text-xs font-medium text-gray-700 hover:bg-brand-50 hover:text-brand-700 hover:border-brand-300 transition"
+                          title="Előnézet"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          Előnézet
                         </Link>
+                        {u.state === 'available' && (
+                          <Link
+                            href={`/hu/shares?scope=upload&resourceId=${u.id}&resourceName=${encodeURIComponent(u.originalName ?? u.fileName)}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-gray-200 text-xs font-medium text-gray-700 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-300 transition"
+                            title="Megosztás link"
+                          >
+                            <Share2 className="w-3.5 h-3.5" />
+                            Megosztás
+                          </Link>
+                        )}
                       </div>
                     </td>
                   </tr>

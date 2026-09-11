@@ -10,6 +10,7 @@ import { useT } from '@/lib/hooks/use-t';
 import { useOnboardingStore } from '@/lib/onboarding-store';
 import { useThemeStore } from '@/lib/theme-store';
 import { useDemoStatus, seedDemo, resetDemo, clearDemo } from '@/lib/hooks/use-demo';
+import { useDemoVisibility } from '@/lib/hooks/use-demo-visibility';
 import { SidebarCustomizeSection } from '@/components/settings/sidebar-customize-section';
 
 /* ─── section card ───────────────────────────────────────────────────────────── */
@@ -455,6 +456,7 @@ function OnboardingSection() {
   const [busy, setBusy] = useState<'seed' | 'reset' | 'clear' | null>(null);
   const [toast, setToast] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
   const [showWhat, setShowWhat] = useState(false);
+  const demoVis = useDemoVisibility();
 
   const isSeeded = status?.isSeeded ?? false;
   const isBusy = busy !== null;
@@ -534,8 +536,29 @@ function OnboardingSection() {
 
         <p className="text-xs text-gray-500">{td.sectionSubtitle}</p>
 
-        {/* Akciógombok */}
-        {!isSeeded ? (
+        {/* Admin-only kapcsoló: mutassa-e a demó-betöltés gombokat egyáltalán.
+         * Alapból KI van kapcsolva minden környezetben — élesben nem cél, hogy
+         * a felhasználók véletlenül demó-adatot vegyítsenek a saját adataik közé.
+         * Csak `admin` szerep látja + explicit be kell kapcsolnia. */}
+        {demoVis.isAdmin && (
+          <label className="flex items-center gap-2 text-xs text-gray-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={demoVis.enabled}
+              onChange={e => demoVis.setEnabled(e.target.checked)}
+              className="w-4 h-4 accent-amber-500"
+            />
+            <span className="font-medium text-amber-700">
+              Demó-betöltés gombok mutatása
+            </span>
+            <span className="text-gray-500">
+              — a Katalógus-betöltés (Árazógép) + Demó-betöltés csak ha ez be van kapcsolva
+            </span>
+          </label>
+        )}
+
+        {/* Akciógombok — CSAK ha admin ÉS a kapcsoló bekapcsolva */}
+        {demoVis.showButtons && !isSeeded ? (
           <button
             onClick={handleSeed}
             disabled={isBusy}
@@ -544,7 +567,7 @@ function OnboardingSection() {
             {busy === 'seed' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
             {busy === 'seed' ? td.loading : td.btnLoad}
           </button>
-        ) : (
+        ) : demoVis.showButtons && isSeeded ? (
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={handleDemoReset}
@@ -563,7 +586,7 @@ function OnboardingSection() {
               {busy === 'clear' ? td.loading : td.btnClear}
             </button>
           </div>
-        )}
+        ) : null}
 
         {/* Mit tölt be? */}
         <button

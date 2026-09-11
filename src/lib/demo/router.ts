@@ -180,6 +180,14 @@ const special: Handler = (m, parts, query, body) => {
     return ok({ ok: true, capturedDate: snap?.capturedDate ?? '' });
   }
 
+  // MiniCRM-import (Szobák) — a demóban nincs valódi MiniCRM-integráció
+  if (path === 'minicrm/import/bootstrap-szobak' && m === 'post') {
+    return ok({ skipped: 'demó — a MiniCRM-integráció csak az éles rendszerben érhető el' });
+  }
+  if (path.match(/^minicrm\/import\/szoba\/[^/]+$/) && m === 'post') {
+    return ok({ skipped: 'demó — a MiniCRM-integráció csak az éles rendszerben érhető el' });
+  }
+
   // E-mail sablonok (Adminisztráció → E-mail sablonok) — 25 autentikus sablon
   if (path === 'mail-templates' && m === 'get') {
     return ok(buildMailList((store['__mailOverrides'] as any[]) ?? []));

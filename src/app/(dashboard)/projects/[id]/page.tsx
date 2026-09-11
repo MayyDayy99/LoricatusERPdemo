@@ -123,6 +123,31 @@ export default function ProjectDetailPage() {
   const [saving, setSaving] = useState(false);
   const [transitioning, setTransitioning] = useState(false);
   const [form, setForm] = useState({ name: '', description: '', startDate: '', endDate: '', tags: '' });
+  // Inline tag-add — közvetlenül az Alap adatok fülről lehet címkéket hozzáadni/törölni.
+  const [newTagInput, setNewTagInput] = useState('');
+  const [tagBusy, setTagBusy] = useState(false);
+  const addTagInline = async () => {
+    const newTag = newTagInput.trim();
+    if (!newTag || !id || !project) return;
+    const currentTags = project.tags ?? [];
+    if (currentTags.includes(newTag)) { setNewTagInput(''); return; }
+    setTagBusy(true);
+    try {
+      await updateProject(id, { tags: [...currentTags, newTag] });
+      setNewTagInput('');
+      await mutate();
+    } catch { toast.error('Nem sikerült címkét menteni'); }
+    finally { setTagBusy(false); }
+  };
+  const removeTagInline = async (tag: string) => {
+    if (!id || !project) return;
+    setTagBusy(true);
+    try {
+      await updateProject(id, { tags: (project.tags ?? []).filter(t => t !== tag) });
+      await mutate();
+    } catch { toast.error('Nem sikerült címkét törölni'); }
+    finally { setTagBusy(false); }
+  };
 
   const { documents } = useDocuments(activeTab === 'documents' ? (id ?? null) : null);
   const { uploads } = useUploads(activeTab === 'uploads' ? (id ?? null) : null);
@@ -250,8 +275,10 @@ export default function ProjectDetailPage() {
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="border-b border-gray-200 overflow-x-auto">
+      {/* Tabs — a scrollbar-t elrejtjük (a "görgős cucc" nem szükséges, mert a
+       * tabok normál viewportra befér), de az `overflow-x-auto` megmarad ha
+       * mégis szűk lenne (mobil viewport). */}
+      <div className="border-b border-gray-200 overflow-x-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         <nav className="flex gap-1 -mb-px min-w-max">
           {TABS.map(({ id: tabId, label, icon: Icon }) => (
             <button
@@ -348,12 +375,30 @@ export default function ProjectDetailPage() {
                 <MapPin className="w-3.5 h-3.5" /> Location
               </h3>
               {project.location ? (
-                <div className="text-sm text-gray-700 space-y-0.5">
-                  {project.location.address && <p>{project.location.address}</p>}
-                  <p>{project.location.city}{project.location.country ? `, ${project.location.country}` : ''}</p>
+                <div className="space-y-2">
+                  <div className="text-sm text-gray-700 space-y-0.5">
+                    {project.location.address && <p>{project.location.address}</p>}
+                    <p>{project.location.city}{project.location.country ? `, ${project.location.country}` : ''}</p>
+                  </div>
+                  <Link
+                    href={`/map?projectId=${id}&mode=draw-polygon`}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-brand-600 hover:text-brand-700"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    Terület kijelölése a térképen →
+                  </Link>
                 </div>
               ) : (
-                <p className="text-sm text-gray-400 italic">No location set</p>
+                <div className="space-y-2">
+                  <p className="text-sm text-gray-400 italic">Még nincs helyszín megadva</p>
+                  <Link
+                    href={`/map?projectId=${id}&mode=set-location`}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold rounded-lg shadow-sm transition"
+                  >
+                    <MapPin className="w-3.5 h-3.5" />
+                    Helyszín beállítása a térképen
+                  </Link>
+                </div>
               )}
             </div>
 
@@ -377,16 +422,51 @@ export default function ProjectDetailPage() {
               <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5">
                 <Tag className="w-3.5 h-3.5" /> Tags
               </h3>
-              {project.tags && project.tags.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {project.tags.map((tag) => (
-                    <span key={tag} className="text-xs px-2.5 py-1 bg-brand-50 text-brand-700 rounded-full">
-                      {tag}
-                    </span>
-                  ))}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {(project.tags ?? []).map((tag) => (
+                  <span
+                    key={tag}
+                    className="inline-flex items-center gap-1 text-xs px-2.5 py-1 bg-brand-50 text-brand-700 rounded-full"
+                  >
+                    {tag}
+                    <button
+                      type="button"
+                      onClick={() => removeTagInline(tag)}
+                      disabled={tagBusy}
+                      className="text-brand-500 hover:text-brand-700 disabled:opacity-50"
+                      title="Címke eltávolítása"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))}
+                <div className="inline-flex items-center gap-1">
+                  <input
+                    type="text"
+                    value={newTagInput}
+                    onChange={(e) => setNewTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); void addTagInline(); }
+                    }}
+                    placeholder="Új címke…"
+                    disabled={tagBusy}
+                    className="text-xs px-2.5 py-1 border border-dashed border-gray-300 rounded-full outline-none focus:border-brand-400 focus:ring-1 focus:ring-brand-200 min-w-[110px] disabled:opacity-50"
+                  />
+                  {newTagInput.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => void addTagInline()}
+                      disabled={tagBusy}
+                      className="text-brand-600 hover:text-brand-700 disabled:opacity-50"
+                      title="Hozzáadás"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-gray-400 italic">No tags</p>
+              </div>
+              {(project.tags ?? []).length === 0 && !newTagInput && (
+                <p className="text-xs text-gray-400 italic mt-2">Nincs címke — kezdd el gépelni az inputba, Enter = hozzáadás.</p>
               )}
             </div>
 
@@ -496,30 +576,38 @@ export default function ProjectDetailPage() {
         />
       )}
 
-      {activeTab === 'work-orders' && (
-        <div className="bg-white border border-gray-100 rounded-xl">
-          {!workOrders || workOrders.length === 0 ? (
-            <div className="p-8 text-center text-gray-400 text-sm">Nincs munkalap ehhez a projekthez.</div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-100">
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Szám</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Helyszín</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Állapot</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Határidő</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {workOrders.map((wo: any) => (
-                  <WorkOrderRow key={wo.id} wo={wo} />
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+      {activeTab === 'work-orders' && (() => {
+        // A backend `/work-orders?projectId=…` `{ items, total, take, skip }`-t
+        // ad vissza, nem sima array-t → normalizáljuk mielőtt renderelnénk.
+        // Fallback: ha valami régi endpoint mégis array-t adna, azt is elfogadjuk.
+        const workOrdersList: any[] = Array.isArray(workOrders)
+          ? workOrders
+          : (workOrders?.items ?? []);
+        return (
+          <div className="bg-white border border-gray-100 rounded-xl">
+            {workOrdersList.length === 0 ? (
+              <div className="p-8 text-center text-gray-400 text-sm">Nincs munkalap ehhez a projekthez.</div>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-100">
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Szám</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Helyszín</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Állapot</th>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Határidő</th>
+                    <th className="px-4 py-3" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {workOrdersList.map((wo: any) => (
+                    <WorkOrderRow key={wo.id} wo={wo} />
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        );
+      })()}
 
       {activeTab === 'contracts' && (
         <div className="bg-white border border-gray-100 rounded-xl">

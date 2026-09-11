@@ -14,7 +14,7 @@ import useSWR from 'swr';
 import Link from 'next/link';
 import {
   ArrowLeft, Download, Copy, FileText, History, Info, Link2, ClipboardList,
-  ExternalLink, AlertCircle,
+  ExternalLink, AlertCircle, Share2,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { apiClient } from '@/lib/api-client';
@@ -147,8 +147,21 @@ export default function UploadDetailPage() {
     );
   }
 
-  const isImage = (upload.mimeType ?? '').startsWith('image/');
-  const isPdf = upload.mimeType === 'application/pdf';
+  const mime = upload.mimeType ?? '';
+  const fileName = upload.originalName ?? upload.fileName;
+  const ext = fileName.split('.').pop()?.toLowerCase() ?? '';
+  const isImage = mime.startsWith('image/');
+  const isPdf = mime === 'application/pdf';
+  const isVideo = mime.startsWith('video/');
+  const isAudio = mime.startsWith('audio/');
+  const isText = mime.startsWith('text/')
+    || mime === 'application/json'
+    || mime === 'application/xml'
+    || ['txt', 'md', 'csv', 'log', 'json', 'xml', 'yml', 'yaml', 'ts', 'tsx', 'js', 'jsx', 'py', 'sh', 'sql'].includes(ext);
+  // Office Online támogatja: docx, xlsx, pptx, doc, xls, ppt (max 10 MB)
+  const isOffice = ['docx', 'xlsx', 'pptx', 'doc', 'xls', 'ppt'].includes(ext) && (upload.fileSize ?? 0) < 10 * 1024 * 1024;
+  // 3D — Google model-viewer natívan tudja: glb (bináris) + gltf (JSON)
+  const is3D = ['glb', 'gltf'].includes(ext);
   const isAvailable = upload.state === 'available';
 
   return (
@@ -184,23 +197,33 @@ export default function UploadDetailPage() {
             </button>
           )}
           {isAvailable && (
-            <a
-              href={signedUrl ?? '#'}
-              onClick={async (e) => {
-                if (!signedUrl) {
-                  e.preventDefault();
-                  const url = await getDownloadUrl(upload.id);
-                  setSignedUrl(url);
-                  window.open(url, '_blank');
-                }
-              }}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700"
-            >
-              <Download className="w-3.5 h-3.5" />
-              {t.uploads.detail.downloadBtn}
-            </a>
+            <>
+              <Link
+                href={`/hu/shares?scope=upload&resourceId=${upload.id}&resourceName=${encodeURIComponent(fileName)}`}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-blue-200 text-blue-700 text-sm font-medium hover:bg-blue-50"
+                title="Publikus megosztási link generálása"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                Megosztás
+              </Link>
+              <a
+                href={signedUrl ?? '#'}
+                onClick={async (e) => {
+                  if (!signedUrl) {
+                    e.preventDefault();
+                    const url = await getDownloadUrl(upload.id);
+                    setSignedUrl(url);
+                    window.open(url, '_blank');
+                  }
+                }}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-brand-600 text-white text-sm font-medium hover:bg-brand-700"
+              >
+                <Download className="w-3.5 h-3.5" />
+                {t.uploads.detail.downloadBtn}
+              </a>
+            </>
           )}
         </div>
       </div>
@@ -271,13 +294,55 @@ export default function UploadDetailPage() {
             <div className="py-16 text-center text-gray-300">
               <div className="inline-block w-6 h-6 border-2 border-gray-300 border-t-brand-500 rounded-full animate-spin" />
             </div>
+          ) : signedUrl.startsWith('http://mock-storage') ? (
+            // Lokál dev-mock: nincs valós Azure Storage — az `<img>`/`<iframe>` a
+            // mock URL-en DNS-hibát kap. Prod-on (Azure bekötve) valós SAS URL jön.
+            <div className="py-16 text-center text-amber-800 bg-amber-50 border-y border-amber-100">
+              <AlertCircle className="w-10 h-10 mx-auto mb-3 text-amber-500" />
+              <p className="text-sm font-semibold">Előnézet nem elérhető — lokál mock-storage</p>
+              <p className="text-xs mt-2 max-w-md mx-auto">
+                A rendszer jelenleg mock storage-t használ (fejlesztői mód).
+                Az igazi kép megjelenítéséhez kösd be az Azure Storage-t a
+                <a href="/hu/settings/integrations" className="underline font-medium mx-1">
+                  Beállítások → Integrációk
+                </a>
+                oldalon. Prod-on ez automatikus.
+              </p>
+            </div>
           ) : isImage ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={signedUrl} alt={upload.originalName ?? upload.fileName}
+            <img src={signedUrl} alt={fileName}
               className="w-full max-h-[60vh] object-contain bg-gray-50" />
           ) : isPdf ? (
-            <iframe src={signedUrl} title={upload.originalName ?? upload.fileName}
+            <iframe src={signedUrl} title={fileName}
               className="w-full h-[70vh]" />
+          ) : isVideo ? (
+            <video src={signedUrl} controls preload="metadata"
+              className="w-full max-h-[70vh] bg-black">
+              A böngésző nem támogatja ezt a videó-formátumot.
+            </video>
+          ) : isAudio ? (
+            <div className="py-12 px-8 bg-gray-50">
+              <audio src={signedUrl} controls preload="metadata" className="w-full">
+                A böngésző nem támogatja ezt az audio-formátumot.
+              </audio>
+              <p className="mt-4 text-xs text-gray-500 text-center">{fileName}</p>
+            </div>
+          ) : isText ? (
+            <TextPreview url={signedUrl} fileName={fileName} />
+          ) : isOffice ? (
+            // Microsoft Office Online viewer — a src-nek publikusan
+            // elérhetőnek kell lennie (Azure SAS URL erre alkalmas, egyedi
+            // download-URL-eknek CORS-korlátozásuk lehet).
+            <iframe
+              src={`https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(signedUrl)}`}
+              title={fileName}
+              className="w-full h-[80vh]"
+            />
+          ) : is3D ? (
+            // Google `<model-viewer>` webcomponent. A script bekerül a page.tsx-be
+            // (dynamic import lehetőség — itt CDN-ről, mert nem használjuk máshol).
+            <ThreeDViewer url={signedUrl} fileName={fileName} />
           ) : (
             <div className="py-16 text-center text-gray-400">
               <FileText className="w-10 h-10 mx-auto mb-2 opacity-40" />
@@ -420,6 +485,76 @@ function MetaRow({ label, value, mono = false }: { label: string; value: string;
       <div className={clsx('col-span-2 text-sm text-gray-800 break-all', mono && 'font-mono text-xs')}>
         {value}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Szöveg-tartalmú fájlok inline preview-ja (txt, md, json, csv, kód).
+ * Max 500 KB-t tölt le, hogy nagy log-fájl ne akassza meg a browsert.
+ */
+function TextPreview({ url, fileName }: { url: string; fileName: string }) {
+  const [content, setContent] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(url, { headers: { Range: 'bytes=0-524288' } }) // 512 KB
+      .then(r => r.text())
+      .then(txt => {
+        if (cancelled) return;
+        setContent(txt);
+        setTruncated(txt.length >= 524288);
+      })
+      .catch(err => { if (!cancelled) setError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [url]);
+
+  if (error) return <div className="py-8 text-center text-red-600 text-sm">Hiba: {error}</div>;
+  if (content === null) return <div className="py-8 text-center text-gray-400 text-sm">Betöltés…</div>;
+
+  return (
+    <div className="bg-gray-50 max-h-[70vh] overflow-auto">
+      {truncated && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-100 text-xs text-amber-800">
+          ⚠️ A fájl nagy — csak az első 500 KB mutatva. Teljes megnyitáshoz töltsd le.
+        </div>
+      )}
+      <pre className="p-4 text-xs font-mono whitespace-pre-wrap break-all text-gray-800">
+        {content}
+      </pre>
+    </div>
+  );
+}
+
+/**
+ * 3D-modell viewer — Google `<model-viewer>` webcomponent CDN-ről.
+ * glb/gltf natívan; forgatható, zoom-olható. A script egyszer töltődik be.
+ */
+function ThreeDViewer({ url, fileName }: { url: string; fileName: string }) {
+  useEffect(() => {
+    if (document.querySelector('script[data-model-viewer]')) return;
+    const s = document.createElement('script');
+    s.type = 'module';
+    s.src = 'https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js';
+    s.setAttribute('data-model-viewer', 'true');
+    document.head.appendChild(s);
+  }, []);
+
+  return (
+    <div className="bg-gray-100">
+      {/* @ts-expect-error — model-viewer custom element (nincs React type-je) */}
+      <model-viewer
+        src={url}
+        alt={fileName}
+        camera-controls
+        auto-rotate
+        style={{ width: '100%', height: '70vh', backgroundColor: '#f3f4f6' }}
+      />
+      <p className="text-xs text-gray-500 text-center py-2">
+        {fileName} — kattintás + húzás a forgatáshoz, görgetés a nagyításhoz
+      </p>
     </div>
   );
 }

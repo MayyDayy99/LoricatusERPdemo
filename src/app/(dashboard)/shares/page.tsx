@@ -23,6 +23,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { clsx } from 'clsx';
 import {
   Plus, Share2, Trash2, Copy, CheckCheck, AlertCircle, X, Lock,
@@ -142,11 +143,24 @@ function deriveStatus(s: ShareLink): ShareStatusKey {
 
 /* ─── Create-share modal (változatlan a Sprint 3-hoz képest) ─────────────── */
 
-function CreateShareModal({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) {
+function CreateShareModal({
+  onClose,
+  onSuccess,
+  initialScope,
+  initialResourceId,
+  initialResourceName,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+  initialScope?: 'upload' | 'project' | 'document';
+  initialResourceId?: string;
+  initialResourceName?: string;
+}) {
   const t = useT();
-  const [scope, setScope] = useState<'upload' | 'project' | 'document'>('upload');
+  const [scope, setScope] = useState<'upload' | 'project' | 'document'>(initialScope ?? 'upload');
   const [selectedProjectId, setSelectedProjectId] = useState('');
-  const [resourceId, setResourceId] = useState('');
+  const [resourceId, setResourceId] = useState(initialResourceId ?? '');
+  const isPrefilled = Boolean(initialResourceId);
   const [expiresInHours, setExpiresInHours] = useState('');
   const [maxUses, setMaxUses] = useState('');
   const [password, setPassword] = useState('');
@@ -199,55 +213,70 @@ function CreateShareModal({ onClose, onSuccess }: { onClose: () => void; onSucce
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="share-scope" className="block text-sm font-medium text-gray-700 mb-1.5">{t.shares.scopeLabel}</label>
-            <select id="share-scope" value={scope} onChange={(e) => handleScopeChange(e.target.value as any)}
-              className={selectClass}>
-              {t.shares.scopeOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
-
-          {scope === 'project' && (
-            <div>
-              <label htmlFor="share-resource" className="block text-sm font-medium text-gray-700 mb-1.5">{t.shares.resourceLabel}</label>
-              <select id="share-resource" required value={resourceId} onChange={(e) => setResourceId(e.target.value)}
-                disabled={projLoading} className={selectClass}>
-                <option value="">{projLoading ? '…' : t.shares.selectProject}</option>
-                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
+          {isPrefilled ? (
+            // 1-click share: a scope + resourceId query-paraméterből érkezett,
+            // előre kitöltve. Nem cserélhető, csak jelzi mit osztunk meg.
+            <div className="bg-brand-50 border border-brand-200 rounded-lg p-3 space-y-1">
+              <div className="text-xs uppercase text-brand-700 font-semibold tracking-wide">
+                {(t.shares.scope as Record<string, string>)[scope] ?? scope}
+              </div>
+              <div className="text-sm text-brand-900 font-medium">
+                {initialResourceName ?? resourceId}
+              </div>
             </div>
-          )}
-
-          {(scope === 'upload' || scope === 'document') && (
+          ) : (
             <>
               <div>
-                <label htmlFor="share-project" className="block text-sm font-medium text-gray-700 mb-1.5">{t.shares.projectLabel}</label>
-                <select id="share-project" value={selectedProjectId}
-                  onChange={(e) => { setSelectedProjectId(e.target.value); setResourceId(''); }}
-                  disabled={projLoading} className={selectClass}>
-                  <option value="">{projLoading ? '…' : t.shares.selectProject}</option>
-                  {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                <label htmlFor="share-scope" className="block text-sm font-medium text-gray-700 mb-1.5">{t.shares.scopeLabel}</label>
+                <select id="share-scope" value={scope} onChange={(e) => handleScopeChange(e.target.value as any)}
+                  className={selectClass}>
+                  {t.shares.scopeOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
-              <div>
-                <label htmlFor="share-resource" className="block text-sm font-medium text-gray-700 mb-1.5">{t.shares.resourceLabel}</label>
-                <select id="share-resource" required value={resourceId} onChange={(e) => setResourceId(e.target.value)}
-                  disabled={!selectedProjectId || uplLoading || docLoading} className={selectClass}>
-                  <option value="">
-                    {(uplLoading || docLoading) ? '…' : !selectedProjectId ? t.shares.selectProject : t.shares.selectResource}
-                  </option>
-                  {scope === 'upload'
-                    ? uploads.filter((u) => u.state === 'available').map((u) =>
-                        <option key={u.id} value={u.id}>{u.originalName || u.fileName}</option>)
-                    : documents.map((d) =>
-                        <option key={d.id} value={d.id}>{d.title}</option>)
-                  }
-                  {selectedProjectId && !uplLoading && !docLoading &&
-                    (scope === 'upload' ? uploads.filter((u) => u.state === 'available') : documents).length === 0 && (
-                    <option value="" disabled>{t.shares.noResources}</option>
-                  )}
-                </select>
-              </div>
+
+              {scope === 'project' && (
+                <div>
+                  <label htmlFor="share-resource" className="block text-sm font-medium text-gray-700 mb-1.5">{t.shares.resourceLabel}</label>
+                  <select id="share-resource" required value={resourceId} onChange={(e) => setResourceId(e.target.value)}
+                    disabled={projLoading} className={selectClass}>
+                    <option value="">{projLoading ? '…' : t.shares.selectProject}</option>
+                    {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </div>
+              )}
+
+              {(scope === 'upload' || scope === 'document') && (
+                <>
+                  <div>
+                    <label htmlFor="share-project" className="block text-sm font-medium text-gray-700 mb-1.5">{t.shares.projectLabel}</label>
+                    <select id="share-project" value={selectedProjectId}
+                      onChange={(e) => { setSelectedProjectId(e.target.value); setResourceId(''); }}
+                      disabled={projLoading} className={selectClass}>
+                      <option value="">{projLoading ? '…' : t.shares.selectProject}</option>
+                      {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="share-resource" className="block text-sm font-medium text-gray-700 mb-1.5">{t.shares.resourceLabel}</label>
+                    <select id="share-resource" required value={resourceId} onChange={(e) => setResourceId(e.target.value)}
+                      disabled={!selectedProjectId || uplLoading || docLoading} className={selectClass}>
+                      <option value="">
+                        {(uplLoading || docLoading) ? '…' : !selectedProjectId ? t.shares.selectProject : t.shares.selectResource}
+                      </option>
+                      {scope === 'upload'
+                        ? uploads.filter((u) => u.state === 'available').map((u) =>
+                            <option key={u.id} value={u.id}>{u.originalName || u.fileName}</option>)
+                        : documents.map((d) =>
+                            <option key={d.id} value={d.id}>{d.title}</option>)
+                      }
+                      {selectedProjectId && !uplLoading && !docLoading &&
+                        (scope === 'upload' ? uploads.filter((u) => u.state === 'available') : documents).length === 0 && (
+                        <option value="" disabled>{t.shares.noResources}</option>
+                      )}
+                    </select>
+                  </div>
+                </>
+              )}
             </>
           )}
           <div className="grid grid-cols-2 gap-3">
@@ -474,6 +503,28 @@ export default function SharesPage() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showCreate, setShowCreate] = useState(false);
+
+  // 1-click share: URL-paraméterekkel érkező pre-populated flow.
+  // Pl. `/hu/shares?scope=upload&resourceId=<uuid>&resourceName=Heni.png`
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const [prefilledShare, setPrefilledShare] = useState<{
+    scope: 'upload' | 'project' | 'document';
+    resourceId: string;
+    resourceName?: string;
+  } | null>(null);
+  useEffect(() => {
+    const scope = searchParams.get('scope');
+    const resourceId = searchParams.get('resourceId');
+    if (scope && resourceId && (scope === 'upload' || scope === 'project' || scope === 'document')) {
+      setPrefilledShare({
+        scope: scope as 'upload' | 'project' | 'document',
+        resourceId,
+        resourceName: searchParams.get('resourceName') ?? undefined,
+      });
+      setShowCreate(true);
+    }
+  }, [searchParams]);
   const [showBulkModal, setShowBulkModal] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -959,7 +1010,20 @@ export default function SharesPage() {
         </div>
       </div>
 
-      {showCreate && <CreateShareModal onClose={() => setShowCreate(false)} onSuccess={() => mutate()} />}
+      {showCreate && (
+        <CreateShareModal
+          onClose={() => {
+            setShowCreate(false);
+            setPrefilledShare(null);
+            // Tisztítjuk a URL-paramétereket, hogy egy refresh ne nyissa újra a modalt.
+            if (prefilledShare) router.replace('/hu/shares');
+          }}
+          onSuccess={() => mutate()}
+          initialScope={prefilledShare?.scope}
+          initialResourceId={prefilledShare?.resourceId}
+          initialResourceName={prefilledShare?.resourceName}
+        />
+      )}
       {showBulkModal && (
         <BulkRevokeModal
           selectedIds={Array.from(selectedIds)}

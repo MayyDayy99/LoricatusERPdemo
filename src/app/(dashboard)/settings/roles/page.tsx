@@ -14,7 +14,7 @@ import { useUsers } from '@/lib/hooks/use-users';
 import { useT } from '@/lib/hooks/use-t';
 import {
   GROUPS, NAV_LABELS, type GroupId, type UserRoleLike,
-  getOrderedItemsForGroup,
+  getOrderedItemsForGroup, CLIENT_ALLOWED_ROUTES,
 } from '@/components/layout/sidebar-config';
 import {
   useTenant, updateSidebarPolicies as apiUpdateSidebarPolicies,
@@ -449,15 +449,45 @@ function PermissionMatrixTab() {
     return edits[roleId] ?? rolePerms[roleId] ?? new Set();
   }
 
+  /**
+   * Wildcard-aware match: '*' → minden true, 'resource:*' → 'resource:action' true.
+   * A backend ROLE_PERMISSIONS wildcardokat tárol (pl. admin: 'users:*'), a UI
+   * checkboxai pedig konkrét `resource:action`-ok — így ez a helper hidalja át.
+   */
+  function hasPerm(perms: Set<string>, perm: string): boolean {
+    if (perms.has('*')) return true;
+    if (perms.has(perm)) return true;
+    const resource = perm.split(':')[0];
+    return resource ? perms.has(`${resource}:*`) : false;
+  }
+
   function toggle(roleId: string, perm: string) {
     const current = new Set(getPerms(roleId));
+    // Wildcard/'*' feloldás: ha wildcard-osan volt engedélyezve, akkor a toggle
+    // előbb a resource `PERMISSION_GROUPS`-ban lévő konkrét perm-ekre expand-ol
+    // (és a wildcard-ot törli), majd toggle-ol.
+    if (current.has('*') || current.has(`${perm.split(':')[0]}:*`)) {
+      current.delete('*');
+      const resource = perm.split(':')[0];
+      current.delete(`${resource}:*`);
+      const group = PERMISSION_GROUPS.find((g) => g.resource === resource);
+      if (group) for (const p of group.permissions) current.add(p);
+    }
     if (current.has(perm)) current.delete(perm); else current.add(perm);
     setEdits((prev) => ({ ...prev, [roleId]: current }));
   }
 
   function toggleGroup(roleId: string, group: string[]) {
     const current = new Set(getPerms(roleId));
-    const allChecked = group.every((p) => current.has(p));
+    const allChecked = group.every((p) => hasPerm(current, p));
+    // Wildcard-feloldás ugyanúgy mint az egyedi toggle-nál:
+    // ha `*` vagy `resource:*` van benne, cseréljük konkrétra a group-ra
+    const resource = group[0]?.split(':')[0];
+    if (current.has('*') || (resource && current.has(`${resource}:*`))) {
+      current.delete('*');
+      if (resource) current.delete(`${resource}:*`);
+      for (const p of group) current.add(p);
+    }
     for (const p of group) { if (allChecked) current.delete(p); else current.add(p); }
     setEdits((prev) => ({ ...prev, [roleId]: current }));
   }
@@ -519,7 +549,7 @@ function PermissionMatrixTab() {
                 {roles.map((r) => (
                   <td key={r.id} className="text-center py-2 px-2">
                     <input type="checkbox" className="w-3.5 h-3.5 accent-brand-500"
-                      checked={permissions.every((p) => getPerms(r.id).has(p))}
+                      checked={permissions.every((p) => hasPerm(getPerms(r.id), p))}
                       onChange={() => toggleGroup(r.id, permissions)} />
                   </td>
                 ))}
@@ -534,7 +564,7 @@ function PermissionMatrixTab() {
                   {roles.map((r) => (
                     <td key={r.id} className="text-center py-1.5 px-2">
                       <input type="checkbox" className="w-3.5 h-3.5 accent-brand-500"
-                        checked={getPerms(r.id).has(perm)}
+                        checked={hasPerm(getPerms(r.id), perm)}
                         onChange={() => toggle(r.id, perm)} />
                     </td>
                   ))}
@@ -732,7 +762,13 @@ function VisibilityTab() {
   );
 
   const policies: SidebarPoliciesByRole = localPolicies ?? serverPolicies;
-  const hiddenForRole = new Set(policies[selectedRole]?.hidden ?? []);
+  const isClientRole = selectedRole === 'client';
+  // client-nél NEM a policies.hidden dönt, hanem a hardcoded CLIENT_ALLOWED_ROUTES whitelist:
+  // ami NINCS a listán → 'hidden'-ként renderelődik, de a toggle le van tiltva
+  const clientAllowedSet = useMemo(() => new Set<string>(CLIENT_ALLOWED_ROUTES), []);
+  const hiddenForRole = isClientRole
+    ? new Set<string>() // csak számláshoz — a lenti render külön kezeli
+    : new Set(policies[selectedRole]?.hidden ?? []);
 
   async function commit(nextHidden: string[]) {
     const nextPolicies: SidebarPoliciesByRole = {
@@ -796,6 +832,31 @@ function VisibilityTab() {
         )}
       </div>
 
+      {isClientRole && (
+        <div className="bg-green-50 border border-green-200 rounded-xl p-4 flex items-start gap-3">
+          <UserCheck className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
+          <div className="text-sm text-green-900 space-y-1">
+            <p className="font-semibold">Megrendelő-szerepkör (client) — biztonsági whitelist</p>
+            <p className="text-green-800">
+              A megrendelő felhasználók KIZÁRÓLAG a hardcoded whitelist szerint látják a menüt.
+              Ezt a listát a kód szintjén rögzítjük (biztonsági okból, hogy véletlen policy-hiba
+              se szivárogtasson üzletileg érzékeny adatot):
+            </p>
+            <ul className="ml-4 mt-1 list-disc space-y-0.5">
+              {CLIENT_ALLOWED_ROUTES.map((r) => (
+                <li key={r}>
+                  <code className="text-xs bg-white px-1.5 py-0.5 rounded border border-green-200">{r}</code>
+                  {' — '}
+                  {NAV_LABELS[r]?.[locale] ?? r}
+                </li>
+              ))}
+            </ul>
+            <p className="text-green-800 text-xs mt-2">
+              A többi menüpont automatikusan rejtve — a lentiek csak tájékoztató jellegűek, nem kapcsolhatók.
+            </p>
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-4">
         {/* Left: role selector */}
         <div className="bg-white border border-gray-100 rounded-xl p-3 space-y-1 h-fit">
@@ -803,7 +864,9 @@ function VisibilityTab() {
             {tr.visibilityRole}
           </p>
           {roleOptions.map((r) => {
-            const count = policies[r.key]?.hidden?.length ?? 0;
+            const count = r.key === 'client'
+              ? CLIENT_ALLOWED_ROUTES.length // fixed whitelist méret
+              : policies[r.key]?.hidden?.length ?? 0;
             const active = selectedRole === r.key;
             return (
               <button
@@ -820,7 +883,9 @@ function VisibilityTab() {
                   </span>
                 </span>
                 <span className="text-[10px] text-gray-400">
-                  {count > 0 ? tr.visibilityHiddenCount(count) : '—'}
+                  {r.key === 'client'
+                    ? `${count} látható`
+                    : count > 0 ? tr.visibilityHiddenCount(count) : '—'}
                 </span>
               </button>
             );
@@ -838,16 +903,23 @@ function VisibilityTab() {
                     {g.label[locale]}
                   </span>
                   <span className="text-[11px] text-gray-400">
-                    {tr.visibilityHiddenOfTotal(
-                      items.filter((i) => hiddenForRole.has(i.href)).length,
-                      items.length,
-                    )}
+                    {isClientRole
+                      ? tr.visibilityHiddenOfTotal(
+                          items.filter((i) => !clientAllowedSet.has(i.href)).length,
+                          items.length,
+                        )
+                      : tr.visibilityHiddenOfTotal(
+                          items.filter((i) => hiddenForRole.has(i.href)).length,
+                          items.length,
+                        )}
                   </span>
                 </div>
                 <ul className="divide-y divide-gray-50">
                   {items.map((it) => {
                     const label = NAV_LABELS[it.href]?.[locale] ?? it.href;
-                    const isHidden = hiddenForRole.has(it.href);
+                    const isHidden = isClientRole
+                      ? !clientAllowedSet.has(it.href)
+                      : hiddenForRole.has(it.href);
                     const Icon = it.icon;
                     return (
                       <li
@@ -859,10 +931,16 @@ function VisibilityTab() {
                       >
                         <button
                           type="button"
-                          onClick={() => toggleHidden(it.href)}
-                          title={isHidden ? tr.visibilityShowItem : tr.visibilityHideItem}
+                          onClick={() => !isClientRole && toggleHidden(it.href)}
+                          disabled={isClientRole}
+                          title={
+                            isClientRole
+                              ? 'Megrendelő szerepkör: whitelist a kódban van, nem szerkeszthető'
+                              : isHidden ? tr.visibilityShowItem : tr.visibilityHideItem
+                          }
                           className={clsx(
                             'p-1.5 rounded-lg transition',
+                            isClientRole && 'cursor-not-allowed opacity-70',
                             isHidden
                               ? 'bg-gray-100 text-gray-500 hover:bg-gray-200'
                               : 'bg-brand-50 text-brand-700 hover:bg-brand-100',
