@@ -673,5 +673,15 @@ export function buildSeed(): Store {
     } as unknown as Row[];
   }
 
+  // E-mail sablon override-ok — a legtöbb sablon a kód-alapértelmezettet használja,
+  // egy testreszabott példa a „módosított" állapot bemutatásához.
+  store['__mailOverrides'] = [{
+    eventKey: 'quote',
+    subject: 'Árajánlata megérkezett — {{quoteNumber}}',
+    htmlBody: '<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:24px;color:#111827"><h2 style="color:#12331f">Tisztelt Ügyfelünk!</h2><p style="line-height:1.55;color:#4b5563">Elkészült az árajánlata (<b>{{quoteNumber}}</b>), végösszeg: <b>{{totalAmount}} {{currency}}</b>. Az ajánlat érvényes: <b>{{validUntil}}</b>.</p><p style="color:#4b5563">Kérdés esetén állunk rendelkezésére.</p><p style="margin-top:20px">Üdvözlettel,<br><b>Loricatus Group Kft.</b></p></div>',
+    textBody: 'Elkészült az árajánlata: {{quoteNumber}} — {{totalAmount}} {{currency}}. Érvényes: {{validUntil}}.',
+    isActive: true, updatedAt: ts(-4),
+  }] as unknown as Row[];
+
   return store;
 }

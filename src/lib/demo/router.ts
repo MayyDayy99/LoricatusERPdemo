@@ -9,6 +9,7 @@
  */
 
 import { buildSeed, nextId, Store, Row } from './db';
+import { buildMailList, buildMailDetail } from './mail-templates';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -177,6 +178,32 @@ const special: Handler = (m, parts, query, body) => {
     const st = store['websites/sync-status'] as { lastSyncAt?: string } | undefined;
     if (st) st.lastSyncAt = new Date().toISOString();
     return ok({ ok: true, capturedDate: snap?.capturedDate ?? '' });
+  }
+
+  // E-mail sablonok (Adminisztráció → E-mail sablonok) — 25 autentikus sablon
+  if (path === 'mail-templates' && m === 'get') {
+    return ok(buildMailList((store['__mailOverrides'] as any[]) ?? []));
+  }
+  if (path.match(/^mail-templates\/[^/]+\/preview$/) && m === 'post') {
+    return ok({ ok: true, sentTo: body?.recipientEmail || 'demo@loricatus.hu' });
+  }
+  if (path.match(/^mail-templates\/[^/]+$/) && m === 'get') {
+    return ok(buildMailDetail(decodeURIComponent(parts[1]), (store['__mailOverrides'] as any[]) ?? []));
+  }
+  if (path.match(/^mail-templates\/[^/]+$/) && m === 'put') {
+    const key = decodeURIComponent(parts[1]);
+    const ov = (store['__mailOverrides'] ?? (store['__mailOverrides'] = [])) as any[];
+    const rec = {
+      eventKey: key, subject: body?.subject ?? '', htmlBody: body?.htmlBody ?? '',
+      textBody: body?.textBody ?? null, isActive: body?.isActive ?? true, updatedAt: new Date().toISOString(),
+    };
+    const ex = ov.find((o) => o.eventKey === key);
+    if (ex) Object.assign(ex, rec); else ov.push(rec);
+    return ok(buildMailDetail(key, ov));
+  }
+  if (path.match(/^mail-templates\/[^/]+$/) && m === 'delete') {
+    store['__mailOverrides'] = ((store['__mailOverrides'] as any[]) ?? []).filter((o) => o.eventKey !== decodeURIComponent(parts[1]));
+    return ok({ success: true });
   }
 
   // Szoftver ↔ PC mátrix (Projekt map → admin → „Szoftver mátrix")
