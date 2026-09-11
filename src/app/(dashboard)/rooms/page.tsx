@@ -136,6 +136,9 @@ export default function RoomsPage() {
               </button>
             );
           })}
+          {/* Demó: a „Besorolatlan" virtuális szoba elrejtve — a demóban minden
+              projekt kategorizált, így ez a gyűjtő üres és zavaró lenne. */}
+          {false && (
           <button
             onClick={() => setActiveRoomId(UNCATEGORISED_ID)}
             className={clsx(
@@ -148,6 +151,7 @@ export default function RoomsPage() {
             <Folder className="w-4 h-4 shrink-0 text-gray-400" />
             <span className="flex-1 truncate">Besorolatlan</span>
           </button>
+          )}
 
           {/* MiniCRM bootstrap: csak admin/CEO látja. Létrehozza a 9 "MiniCRM…"
               szobát + 18 user (skip) + 668 account + 7000+ customer. Idempotens
@@ -159,7 +163,8 @@ export default function RoomsPage() {
               MiniCRM-import-rendszer lefedi a funkciójukat. A backend
               seedDroneRoom + convertDroneOperations szolgáltatások megmaradtak,
               ha valaha újra szükségesek lennének. */}
-          <MiniCrmImportButton onDone={() => mutateCategories()} />
+          {/* Demó: a MiniCRM-import gomb elrejtve — a demóban nincs MiniCRM-integráció. */}
+          {false && <MiniCrmImportButton onDone={() => mutateCategories()} />}
         </div>
       </aside>
 
