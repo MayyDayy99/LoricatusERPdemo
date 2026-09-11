@@ -167,6 +167,18 @@ const special: Handler = (m, parts, query, body) => {
     return ok({ taskCount: its.length, draftCount: its.filter((it) => it.status !== 'done').length });
   }
 
+  // Weboldalak — Microsoft Clarity látogatói analitika (mock)
+  if (path === 'websites/latest' && m === 'get') return ok(store['websites/latest'] ?? null);
+  if (path === 'websites/summary' && m === 'get') return ok(store['websites/summary'] ?? null);
+  if (path === 'websites/history' && m === 'get') return ok(store['websites/history'] ?? []);
+  if (path === 'websites/sync-status' && m === 'get') return ok(store['websites/sync-status']);
+  if (path === 'websites/sync-now' && m === 'post') {
+    const snap = store['websites/latest'] as { capturedDate?: string } | undefined;
+    const st = store['websites/sync-status'] as { lastSyncAt?: string } | undefined;
+    if (st) st.lastSyncAt = new Date().toISOString();
+    return ok({ ok: true, capturedDate: snap?.capturedDate ?? '' });
+  }
+
   // Szoftver ↔ PC mátrix (Projekt map → admin → „Szoftver mátrix")
   if (path === 'equipment/software-pc/list' && m === 'get') return ok(store['equipment/software-pc'] ?? []);
   if (path === 'equipment/software-pc' && m === 'post') {

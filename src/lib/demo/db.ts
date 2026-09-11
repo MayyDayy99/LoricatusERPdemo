@@ -617,5 +617,61 @@ export function buildSeed(): Store {
     { value: 'gepido',      label: 'Gépidő (render)',       color: '#94a3b8', sortIndex: 9, icon: '⚙️', isUnassigned: true },
   ];
 
+  // ── Weboldalak — Microsoft Clarity látogatói analitika (mock) ──────
+  // A /weboldalak oldal a Clarity Data Export API alakját várja: overview-
+  // metrikák (Traffic / EngagementTime / ScrollDepth) + dimenzió-bontások
+  // (böngésző / OS / eszköz / ország / URL) { name, sessions } sorokként.
+  {
+    const bars = (rows: Array<[string, number]>) => [{
+      metricName: 'Dimension',
+      information: rows.map(([name, sessions]) => ({ name, sessions })),
+    }];
+    // Napi (T-1) teljes pillanatkép: forgalom + engagement + görgetés + dimenziók.
+    const dailySnapshot = {
+      capturedDate: day(-1), fetchedAt: ts(0),
+      payload: {
+        overview: [
+          { metricName: 'Traffic', information: [{ totalSessionCount: 1284, totalBotSessionCount: 96, totalUsers: 947, totalPageViews: 3162, pagesPerSessionPercentage: 2.46 }] },
+          { metricName: 'EngagementTime', information: [{ averageSessionTime: 98, totalTime: 125832, activeTime: 74210 }] },
+          { metricName: 'ScrollDepth', information: [{ averageScrollDepth: 0.63 }] },
+          { metricName: 'PopularPages', information: [{ totalPageViews: 3162 }] },
+        ],
+        byBrowser: bars([['Chrome', 726], ['Safari', 268], ['Edge', 154], ['Firefox', 88], ['Samsung Internet', 42], ['Opera', 18]]),
+        byOS: bars([['Windows', 561], ['Android', 342], ['iOS', 254], ['macOS', 112], ['Linux', 15]]),
+        byDevice: bars([['Számítógép', 694], ['Mobil', 518], ['Tablet', 72]]),
+        byCountry: bars([['Magyarország', 912], ['Németország', 118], ['Ausztria', 86], ['Románia', 71], ['Szlovákia', 49], ['Egyesült Királyság', 38], ['Hollandia', 10]]),
+        byUrl: bars([['/', 984], ['/szolgaltatasok', 421], ['/dron-felmeres', 312], ['/referenciak', 258], ['/kapcsolat', 181], ['/arak', 142], ['/rolunk', 88], ['/blog/bim-alapok', 61]]),
+      },
+    };
+    // 90-napos historikus import: forgalom + dimenziók (nagy összegek).
+    const historicalImport = {
+      periodStartDate: day(-90), periodEndDate: day(-1), fetchedAt: ts(-1),
+      payload: {
+        overview: [
+          { metricName: 'Traffic', information: [{ totalSessionCount: 41850, totalBotSessionCount: 3120, totalUsers: 27940, totalPageViews: 103700, pagesPerSessionPercentage: 2.48 }] },
+        ],
+        byBrowser: bars([['Chrome', 23600], ['Safari', 8700], ['Edge', 4900], ['Firefox', 2800], ['Samsung Internet', 1300], ['Opera', 550]]),
+        byOS: bars([['Windows', 18200], ['Android', 11100], ['iOS', 8200], ['macOS', 3600], ['Linux', 550]]),
+        byDevice: bars([['Számítógép', 22400], ['Mobil', 16900], ['Tablet', 2550]]),
+        byCountry: bars([['Magyarország', 29600], ['Németország', 3800], ['Ausztria', 2800], ['Románia', 2300], ['Szlovákia', 1600], ['Egyesült Királyság', 1200], ['Hollandia', 550]]),
+        byUrl: bars([['/', 32000], ['/szolgaltatasok', 13600], ['/dron-felmeres', 10100], ['/referenciak', 8400], ['/kapcsolat', 5900], ['/arak', 4600], ['/rolunk', 2800], ['/blog/bim-alapok', 1950]]),
+      },
+    };
+    // A Store értékei formálisan Row[]-k; a Clarity-válaszok egyedi objektumok,
+    // ezért cast-oljuk (a router ugyanígy olvassa vissza őket).
+    store['websites/latest'] = dailySnapshot as unknown as Row[];
+    store['websites/history'] = [dailySnapshot] as unknown as Row[];
+    store['websites/summary'] = {
+      historicalImport,
+      dailySnapshots: [dailySnapshot],
+      totalPeriodStart: day(-90),
+      totalPeriodEnd: day(-1),
+    } as unknown as Row[];
+    store['websites/sync-status'] = {
+      lastSyncAt: ts(0), nextAllowedAt: ts(0), canSyncNow: true, secondsUntilAllowed: 0,
+      limit: { requestsPerSync: 6, dailyApiLimit: 10, cooldownHours: 3 },
+    } as unknown as Row[];
+  }
+
   return store;
 }
