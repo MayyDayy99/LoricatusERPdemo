@@ -5,6 +5,7 @@
  */
 
 import { DEMO_TENANT_ID } from './config';
+import { projectTemplates } from './reports';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 export type Row = Record<string, any>;
@@ -682,6 +683,10 @@ export function buildSeed(): Store {
     textBody: 'Elkészült az árajánlata: {{quoteNumber}} — {{totalAmount}} {{currency}}. Érvényes: {{validUntil}}.',
     isActive: true, updatedAt: ts(-4),
   }] as unknown as Row[];
+
+  // Projekt-sablonok (workflow-szerkesztő + settings/project-templates lista +
+  // a statikus export [id] paraméterei ehhez a collection-höz).
+  store['project-templates'] = projectTemplates() as unknown as Row[];
 
   return store;
 }
