@@ -10,6 +10,11 @@
 
 import { buildSeed, nextId, Store, Row } from './db';
 import { buildMailList, buildMailDetail } from './mail-templates';
+import {
+  buildWeeklyReport, weeklyList, weeklyMembers, weeklySettings,
+  execReport, execEmail, execArchive, execSettings, customFields,
+  projectTemplates,
+} from './reports';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -188,6 +193,32 @@ const special: Handler = (m, parts, query, body) => {
     return ok({ skipped: 'demó — a MiniCRM-integráció csak az éles rendszerben érhető el' });
   }
 
+  // Heti jelentés (Napi munka → Heti jelentés)
+  {
+    const meId = store.__me[0].id;
+    const meName = store.__me[0].fullName || store.__me[0].name || 'Demó Felhasználó';
+    if (path === 'weekly-reports/current' && m === 'get') return ok(buildWeeklyReport(meId, meName));
+    if (path.match(/^weekly-reports\/week\/[^/]+$/) && m === 'get') return ok(buildWeeklyReport(meId, meName));
+    if (path === 'weekly-reports' && m === 'get') return ok(weeklyList());
+    if (path === 'weekly-reports/members' && m === 'get') return ok(weeklyMembers(meId, meName));
+    if (path === 'weekly-reports/members/candidates' && m === 'get') return ok([]);
+    if (path === 'weekly-reports/settings' && m === 'get') return ok(weeklySettings());
+    // Vezetői riport (Napi munka → Vezetői riport)
+    if (path === 'executive-report' && m === 'get') return ok(execReport());
+    if (path === 'executive-report/email' && m === 'get') return ok(execEmail());
+    if (path === 'executive-report/archive' && m === 'get') return ok(execArchive());
+    if (path === 'executive-report/settings' && m === 'get') return ok(execSettings());
+    if (path === 'executive-report/settings/candidates' && m === 'get') return ok([]);
+    // Egyéni mezők (Adminisztráció → Egyéni mezők)
+    if (path === 'custom-fields' && m === 'get') return ok(customFields());
+    // Projekt-sablonok (workflow-szerkesztő)
+    if (path === 'project-templates' && m === 'get') return ok(projectTemplates());
+    if (path.match(/^project-templates\/[^/]+$/) && m === 'get') {
+      const tpl = projectTemplates().find((x) => x.id === parts[1]);
+      return ok(tpl ?? projectTemplates()[0]);
+    }
+  }
+
   // E-mail sablonok (Adminisztráció → E-mail sablonok) — 25 autentikus sablon
   if (path === 'mail-templates' && m === 'get') {
     return ok(buildMailList((store['__mailOverrides'] as any[]) ?? []));
@@ -303,7 +334,15 @@ function meetingOverview(): any {
     firstName: u.firstName ?? 'N', lastName: u.lastName ?? 'N',
     role: u.role, roleType: u.roleType, avatarUrl: null, pcId: null,
   }));
-  const projects = store.projects.map((p) => ({ ...p }));
+  const projects = store.projects.map((p, pi) => ({
+    ...p,
+    // Új üzleti mezők (2026-09 kiadás): a Projekt map badge-ei ezeket mutatják.
+    unit: pi % 3 === 0 ? 'iroda' : 'muvelet',
+    officeStatus: (['arazas', 'ajanlat_kint', 'nyert', 'elveszett'] as const)[pi % 4],
+    valueHuf: 2_000_000 + (pi % 9) * 1_350_000,
+    osszeg: 2_000_000 + (pi % 9) * 1_350_000,
+    importalta: pi % 4 === 0 ? (['Péter', 'Anna', 'Zoltán', 'László'][pi % 4] ?? null) : null,
+  }));
   // A Gantt-oszlopok a task-típusból színeződnek; a legenda ugyanezt a listát kapja.
   const ttList = (store['tenants/me/task-types'] ?? []) as Row[];
   const planTypes = ['drone', 'geodezia', 'feldolgozas', 'modellezes', 'qa', 'atadas', 'helyszin', 'egyeztetes'];

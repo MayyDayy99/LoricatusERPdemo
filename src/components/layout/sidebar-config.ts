@@ -4,7 +4,7 @@ import {
   ClipboardList, Map as MapIcon, Plane, DollarSign, UserRound, ScrollText, TrendingUp,
   CheckSquare, Activity, GitBranch, Receipt, Wallet, Clock, Wrench, HardHat,
   Shield, Briefcase, BarChart2, CalendarCheck, ListChecks, Zap, Mail, Plug,
-  GitMerge, UserPlus, Globe,
+  GitMerge, UserPlus, Globe, Newspaper, Gauge,
 } from 'lucide-react';
 import type { LocaleCode } from '@/lib/lang-store';
 
@@ -62,6 +62,8 @@ export const ALL_ITEMS: NavItem[] = [
   { href: '/meeting',   icon: CalendarCheck, group: 'daily', requiredFeature: 'meetingEnabled' },
   { href: '/projects',  icon: FolderOpen,    group: 'daily' },
   { href: '/rooms',     icon: Briefcase,     group: 'daily' },
+  { href: '/weekly-report',    icon: Newspaper, group: 'daily', roleAllowed: ['admin', 'ceo', 'manager', 'operative'] },
+  { href: '/executive-report', icon: Gauge,     group: 'daily', roleAllowed: ['super_admin', 'admin', 'ceo', 'manager'] },
 
   // SALES (5)
   { href: '/customers', icon: UserRound,  group: 'sales' },
@@ -129,6 +131,8 @@ export const GROUPS: { id: GroupId; label: Record<LocaleCode, string>; }[] = [
 /* ── NAV_LABELS: href -> per-locale szoveg ───────────────────── */
 export const NAV_LABELS: Record<string, Record<LocaleCode, string>> = {
   '/dashboard':      { hu: 'Mai napom',     en: 'My Day',       it: 'La mia giornata' },
+  '/weekly-report':  { hu: 'Heti jelentés', en: 'Weekly report', it: 'Rapporto settimanale' },
+  '/executive-report': { hu: 'Vezetői riport', en: 'Executive report', it: 'Report direzionale' },
   '/projects':       { hu: 'Projektek',     en: 'Projects',     it: 'Progetti'      },
   '/rooms':          { hu: 'Szobák',        en: 'Rooms',        it: 'Stanze'        },
   '/customers':      { hu: 'Ügyfelek',      en: 'Customers',    it: 'Clienti'       },
