@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft, ChevronRight, ChevronDown, Edit2, Check, Calendar, Clock,
@@ -15,8 +15,9 @@ import {
   useProjectCategories,
   useProjectActivity, type ActivityEntry,
 } from '@/lib/hooks/use-projects';
-import { useCrmTasks, completeCrmTask, type CrmTask } from '@/lib/hooks/use-crm';
+import { useCrmTasks, completeCrmTask, CRM_TASKS_MAX_TAKE, type CrmTask } from '@/lib/hooks/use-crm';
 import { useUsers, useCurrentUser } from '@/lib/hooks/use-users';
+import { adminSzintu } from '@/lib/szerepkorok';
 import { useProjectDroneOperation } from '@/lib/hooks/use-drone';
 import { DroneFlightPanel } from '@/components/drone/drone-flight-panel';
 import { TaskEditorModal } from '../task-editor-modal';
@@ -305,7 +306,12 @@ function NewsfeedSection({ projectId }: { projectId: string }) {
 // ─── Tasks szekció a bal főnézetben ──────────────────────────────────────────
 
 function TasksSection({ projectId }: { projectId: string }) {
-  const { tasks, isLoading, mutate } = useCrmTasks({ projectId });
+  // `take` EXPLICIT: a backend alapértelmezése 50, ami csendben levágta a
+  // listát (pl. 101 feladatból 50 látszott). Ráadásul a rendezés `dueDate ASC`,
+  // és a határidő nélküliek NULLS LAST-ként a végére kerülnek — így egy frissen
+  // létrehozott, határidő nélküli feladat a vágás mögé esett, azaz "nem jelent
+  // meg". A projekt-nézetben a teljes listát kérjük.
+  const { tasks, isLoading, mutate } = useCrmTasks({ projectId, take: CRM_TASKS_MAX_TAKE });
   const { users } = useUsers();
   const [editing, setEditing] = useState<CrmTask | 'new' | null>(null);
 
@@ -330,12 +336,34 @@ function TasksSection({ projectId }: { projectId: string }) {
 
   const completed = tasks.filter(t => t.status === 'completed' || t.status === 'cancelled');
 
+  // A fejléc-számláló a NYITOTT (elvégzendő) feladatokat mutatja — a nyers
+  // `tasks.length` a lezártakat és a piszkozatokat is beleszámolta, ezért nem
+  // csökkent lezáráskor, és a lapméretet (50) mutatta valós számként.
+  const openCount = useMemo(
+    () => Object.values(groups).reduce((n, g) => n + g.length, 0),
+    [groups],
+  );
+  const truncated = tasks.length >= CRM_TASKS_MAX_TAKE;
+
   return (
     <section>
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-base font-semibold text-gray-900 flex items-center gap-2">
           <ListChecks className="w-4 h-4 text-gray-400" />
-          Teendők ({tasks.length})
+          Teendők ({openCount})
+          {completed.length > 0 && (
+            <span className="text-xs font-normal text-gray-400">
+              · {completed.length} lezárva
+            </span>
+          )}
+          {truncated && (
+            <span
+              className="text-xs font-normal text-amber-600"
+              title={`Csak az első ${CRM_TASKS_MAX_TAKE} feladat töltődött be.`}
+            >
+              · lista levágva
+            </span>
+          )}
         </h2>
         <button
           onClick={() => setEditing('new')}
@@ -345,7 +373,11 @@ function TasksSection({ projectId }: { projectId: string }) {
         </button>
       </div>
 
-      {isLoading && <div className="text-sm text-gray-400">Töltés…</div>}
+      {/* Csak a VALÓDI első betöltésnél mutatjuk — revalidáláskor a régi lista
+          marad a helyén, így nincs ugrálás. */}
+      {isLoading && tasks.length === 0 && (
+        <div className="text-sm text-gray-400 mb-3">Töltés…</div>
+      )}
 
       <div className="bg-white border border-gray-100 rounded-lg p-4 space-y-4">
         <TaskGroup label="Lejárt"  tone="red"   tasks={groups.overdue} users={users} onChanged={() => mutate()} onEdit={setEditing} />
@@ -425,46 +457,123 @@ function TaskRow({
   onChanged: () => void;
   onClick: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  // Lezárás-animáció. Két korábbi hiba javítva:
+  //  1. A refetch azonnal jött, a task átugrott az alapból ÖSSZECSUKOTT
+  //     „Lezárva" csoportba → a sor átmenet nélkül eltűnt (villanás).
+  //  2. A collapse `max-h-32`-ről (128px) ment 0-ra, miközben a sor valós
+  //     magassága ~56px — az átmenet első fele LÁTHATATLAN volt, ezért a
+  //     maradék is villanásnak tűnt.
+  //
+  // Most: a pipa fél másodpercig látszik, aztán a sor a MÉRT magasságáról
+  // fut ki (így az alatta lévők végig egyenletesen csúsznak feljebb), és a
+  // lista csak ezután frissül.
+  const HOLD_MS = 550;      // meddig látszik kipipálva
+  const COLLAPSE_MS = 480;  // a kifutás hossza
+
+  const [phase, setPhase] = useState<'idle' | 'done' | 'leaving'>('idle');
+  const rowRef = useRef<HTMLLIElement>(null);
+  /** Inline max-height a pontos collapse-hez (px → 0px). */
+  const [collapseH, setCollapseH] = useState<string | undefined>(undefined);
+
   const assignee = task.assignedTo ? users.find(u => u.id === task.assignedTo) : null;
   const dueLabel = task.dueDate ? new Date(task.dueDate).toLocaleDateString('hu-HU', { month: 'short', day: 'numeric' }) : null;
   const isDone = task.status === 'completed' || task.status === 'cancelled';
-  const overdue = !isDone && task.dueDate && task.dueDate.slice(0, 10) < new Date().toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const overdue = !isDone && !!task.dueDate && task.dueDate.slice(0, 10) < today;
+
+  // Késve zárult-e? Már lezárt tasknál a `completedAt`-ből, épp most zárónál a
+  // mai dátumból. Ez adja a két különböző visszajelzést (időben / késve).
+  const closedLate = task.dueDate
+    ? (isDone
+        ? !!task.completedAt && task.completedAt.slice(0, 10) > task.dueDate.slice(0, 10)
+        : task.dueDate.slice(0, 10) < today)
+    : false;
+
+  const showDone = isDone || phase !== 'idle';
+  const accent = closedLate
+    ? { box: 'bg-amber-500 border-amber-500', ring: 'ring-amber-200/70', chip: 'text-amber-600' }
+    : { box: 'bg-emerald-500 border-emerald-500', ring: 'ring-emerald-200/70', chip: 'text-emerald-600' };
 
   async function handleComplete(e: React.MouseEvent) {
     e.stopPropagation();
-    if (isDone) return;
-    setBusy(true);
+    if (isDone || phase !== 'idle') return;
+    setPhase('done');
     try {
-      await completeCrmTask(task.id);
-      onChanged();
+      // A lista-revalidációt KIHAGYJUK: különben a sor az animáció közepén a
+      // "Lezárva" csoportba ugorva eltűnne. A frissítést a végén, az
+      // `onChanged()` intézi.
+      await completeCrmTask(task.id, { revalidateTaskLists: false });
     } catch (err: any) {
+      setPhase('idle');
       toast.error(err?.response?.data?.message ?? 'Lezárás sikertelen');
-    } finally {
-      setBusy(false);
+      return;
     }
+
+    // 1) HOLD — a pipa fél másodpercig látszik, hogy legyen mit felfogni.
+    window.setTimeout(() => {
+      // 2) Rögzítjük a sor VALÓDI magasságát (vizuálisan no-op), majd a
+      //    következő képkockán indítjuk a 0-ra futást — így a CSS-nek van
+      //    honnan interpolálnia, és a lenti sorok egyenletesen csúsznak fel.
+      const h = rowRef.current?.offsetHeight;
+      if (h) setCollapseH(`${h}px`);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          setPhase('leaving');
+          setCollapseH('0px');
+        });
+      });
+    }, HOLD_MS);
+
+    // 3) A lista csak a teljes kifutás után frissül.
+    window.setTimeout(() => onChanged(), HOLD_MS + COLLAPSE_MS + 40);
   }
 
   return (
     <li
+      ref={rowRef}
       onClick={onClick}
+      style={{
+        maxHeight: collapseH,
+        transitionDuration: `${COLLAPSE_MS}ms`,
+      }}
       className={clsx(
-        'flex items-start gap-2 px-3 py-2 rounded-lg transition cursor-pointer bg-white border border-gray-100',
-        isDone ? 'opacity-60' : 'hover:border-gray-200 hover:shadow-sm',
+        'flex items-start gap-2 rounded-lg cursor-pointer bg-white border overflow-hidden px-3',
+        'transition-all ease-in-out',
+        phase === 'leaving'
+          ? 'opacity-0 py-0 mt-0 border-transparent'
+          : 'py-2 border-gray-100',
+        isDone && phase === 'idle' && 'opacity-60',
+        !showDone && 'hover:border-gray-200 hover:shadow-sm',
       )}
     >
       <button
         onClick={handleComplete}
-        disabled={busy || isDone}
+        disabled={showDone}
+        aria-label={showDone ? 'Elvégezve' : 'Megjelölés elvégzettként'}
         className={clsx(
-          'mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0 transition',
-          isDone ? 'bg-green-500 border-green-500 text-white' : 'border-gray-300 hover:border-brand-500',
+          'mt-0.5 w-4 h-4 rounded border flex items-center justify-center shrink-0',
+          'transition-all duration-200 ease-out',
+          showDone ? `${accent.box} text-white` : 'border-gray-300 hover:border-brand-500',
+          // Halk gyűrű a visszajelzéshez — a sor kifutásáig kitart, hogy ne
+          // pattanjon el a fade közben.
+          phase !== 'idle' && `ring-4 ${accent.ring}`,
         )}
       >
-        {isDone && <Check className="w-3 h-3" />}
+        <Check
+          className={clsx(
+            'w-3 h-3 transition-all duration-200 ease-out',
+            showDone ? 'scale-100 opacity-100' : 'scale-50 opacity-0',
+          )}
+          strokeWidth={3}
+        />
       </button>
       <div className="flex-1 min-w-0">
-        <div className={clsx('text-sm', isDone && 'line-through text-gray-500', !isDone && 'text-gray-900')}>
+        <div
+          className={clsx(
+            'text-sm transition-colors duration-200',
+            showDone ? 'line-through text-gray-500' : 'text-gray-900',
+          )}
+        >
           {task.title}
         </div>
         <div className="flex items-center gap-2 text-[11px] text-gray-400 mt-0.5 flex-wrap">
@@ -473,6 +582,12 @@ function TaskRow({
               <Calendar className="w-3 h-3" />
               {dueLabel}
               {overdue && <AlertCircle className="w-3 h-3 ml-0.5" />}
+            </span>
+          )}
+          {/* Lezárt tasknál tartós, visszafogott jelzés: időben vagy késve. */}
+          {showDone && task.dueDate && (
+            <span className={clsx('font-medium', accent.chip)}>
+              {closedLate ? '· késve' : '· időben'}
             </span>
           )}
           {assignee && <span>· {assignee.firstName} {assignee.lastName}</span>}
@@ -768,7 +883,7 @@ function CommissionSidebarBadge({ projectId }: { projectId: string }) {
   const { currentUser } = useCurrentUser();
   const { commission } = useCommissionForProject(projectId);
   const role = (currentUser as any)?.role;
-  if (role !== 'admin' && role !== 'ADMIN' && role !== 'ceo' && role !== 'CEO') return null;
+  if (!adminSzintu(role)) return null;
   if (!commission) return null; // nem-quote-eredetű projekt → ne mutassunk semmit
 
   const statusMeta: Record<string, { label: string; cls: string }> = {

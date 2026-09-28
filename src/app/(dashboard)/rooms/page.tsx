@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { mutate as globalMutate } from 'swr';
 import {
@@ -14,10 +14,14 @@ import { toast } from 'sonner';
 import { clsx } from 'clsx';
 import { apiClient } from '@/lib/api-client';
 import { useCurrentUser } from '@/lib/hooks/use-users';
+import { adminSzintu } from '@/lib/szerepkorok';
+import { STATE_ORDER, STATE_VISUALS, stateVisual } from '@/lib/project-state-visuals';
+import { computeDatasheetProgress, type DatasheetProgress } from '@/lib/datasheet-progress';
+import { DatasheetProgressBadge } from '@/components/projects/datasheet-progress-badge';
 import {
   useProjectCategories, createProjectCategory, updateProjectCategory, deleteProjectCategory,
   seedDroneRoom, convertDroneOperations,
-  useProjects, createProject, transitionProject,
+  useProjects, createProject, transitionProject, useFieldLayout,
   useTaskTemplates, createTaskTemplate, updateTaskTemplate, deleteTaskTemplate,
   type ProjectCategory, type Project, type ProjectCategoryType, type TaskTemplate,
 } from '@/lib/hooks/use-projects';
@@ -37,17 +41,16 @@ const UNCATEGORISED_ID = '__uncategorised__';
 
 // Kanban oszlopok — projekt-állapotok. A drop-művelet a megengedett
 // ProjectStateMachine átmenetet hívja.
-const KANBAN_COLUMNS: Array<{
-  state: string;
-  label: string;
-  color: string;
-  border: string;
-}> = [
-  { state: 'draft',     label: 'Tervezet', color: 'bg-gray-50',  border: 'border-gray-300' },
-  { state: 'active',    label: 'Aktív',    color: 'bg-blue-50',  border: 'border-blue-300' },
-  { state: 'completed', label: 'Lezárt',   color: 'bg-green-50', border: 'border-green-300' },
-  { state: 'archived',  label: 'Archív',   color: 'bg-zinc-50',  border: 'border-zinc-300' },
-];
+// Az oszlop-színek a KÖZÖS állapot-vizuálból jönnek (project-state-visuals.ts),
+// hogy a Kanban, a Lista és a Gantt ugyanazt a színt használja ugyanarra az
+// állapotra — így az áthúzás mindhárom nézetben azonnal felismerhető.
+const KANBAN_COLUMNS = STATE_ORDER.map((state) => ({
+  state,
+  label: STATE_VISUALS[state].label,
+  color: STATE_VISUALS[state].bg,
+  border: STATE_VISUALS[state].border,
+  bar: STATE_VISUALS[state].bar,
+}));
 
 /** state → state átmenet → ProjectTransition név. Ha undefined, a drop nem megengedett. */
 function transitionFor(from: string, to: string): string | null {
@@ -211,6 +214,24 @@ function RoomProjects({
   const [view, setView] = useState<ViewMode>(defaultView);
   const { viewModes, isLoaded, setRoomView } = useRoomViewPreference();
 
+  // Adatlap-haladás: csak akkor számolunk, ha a kategóriának VAN adatlap-sémája.
+  // Nem a szoba nevére illesztünk (az törékeny), hanem a séma meglétére — így
+  // bármely kategória kap haladás-mutatót, ha az adminja adatlapot állított be.
+  // A `customFieldsData` már benne van a `GET /projects` payloadban, tehát ez
+  // tisztán kliens-oldali, extra kérés nélkül.
+  const { boxes: datasheetBoxes } = useFieldLayout(
+    roomId && roomId !== UNCATEGORISED_ID ? roomId : null,
+  );
+  const progressByProject = useMemo(() => {
+    if (datasheetBoxes.length === 0) return null;
+    const m = new Map<string, DatasheetProgress>();
+    for (const p of projects) {
+      const prog = computeDatasheetProgress(datasheetBoxes, p.customFieldsData);
+      if (prog) m.set(p.id, prog);
+    }
+    return m;
+  }, [datasheetBoxes, projects]);
+
   // Per-szoba perzisztált view-mód: roomId-változáskor betölti a megjegyzett
   // view-t. KÖTELEZŐ várni amíg az SWR betölt (`isLoaded`), különben a "nincs
   // perzisztált érték" fallback-re esnénk vissza még a server-választás előtt.
@@ -354,6 +375,7 @@ function RoomProjects({
             <ProjectRowMini
               key={p.id}
               project={p}
+              progress={progressByProject?.get(p.id)}
               onClick={() => router.push(`/rooms/${p.id}`)}
             />
           ))}
@@ -363,6 +385,7 @@ function RoomProjects({
         <KanbanBoard
           projects={projects}
           isLoading={isLoading}
+          progressByProject={progressByProject}
           onProjectClick={id => router.push(`/rooms/${id}`)}
           onTransitioned={() => { mutate(); bumpOverview(); }}
         />
@@ -392,33 +415,33 @@ function RoomProjects({
 function ProjectRowMini({
   project,
   onClick,
+  progress,
 }: {
   project: Project;
   onClick: () => void;
+  progress?: DatasheetProgress | null;
 }) {
-  const stateColor: Record<string, string> = {
-    draft:     'bg-gray-100 text-gray-600',
-    active:    'bg-blue-50 text-blue-700',
-    on_hold:   'bg-amber-50 text-amber-700',
-    completed: 'bg-green-50 text-green-700',
-    archived:  'bg-gray-100 text-gray-400',
-    cancelled: 'bg-red-50 text-red-600',
-  };
+  // Egységes állapot-szín (lásd project-state-visuals.ts) — ugyanaz a szín,
+  // mint a Kanban-oszlopon és a Gantt sor-hátterén, így a Kanbanban végzett
+  // áthúzás azonnal látszik itt is.
+  const sv = stateVisual(project.state);
   return (
     <button
       onClick={onClick}
-      className="w-full flex items-center gap-3 px-4 py-2.5 rounded-lg text-left transition border bg-white border-gray-100 hover:border-brand-300 hover:shadow-sm group"
+      className="w-full flex items-center gap-3 pl-0 pr-4 py-2.5 rounded-lg text-left transition border bg-white border-gray-100 hover:border-brand-300 hover:shadow-sm group overflow-hidden"
     >
-      <div className="flex-1 min-w-0">
+      <span className={clsx('w-1 self-stretch shrink-0 rounded-l-lg', sv.bar)} aria-hidden />
+      <div className="flex-1 min-w-0 py-0.5">
         <div className="text-sm font-medium text-gray-900 truncate">{project.name}</div>
         {project.description && (
           <div className="text-xs text-gray-500 truncate mt-0.5">{project.description}</div>
         )}
       </div>
-      <span className={clsx('text-xs font-medium px-2 py-0.5 rounded-full', stateColor[project.state] ?? stateColor.draft)}>
-        {project.state}
+      {progress && <DatasheetProgressBadge progress={progress} />}
+      <span className={clsx('text-xs font-medium px-2 py-0.5 rounded-full shrink-0', sv.badge)}>
+        {sv.label}
       </span>
-      <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-600 transition" />
+      <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-brand-600 transition shrink-0" />
     </button>
   );
 }
@@ -426,12 +449,13 @@ function ProjectRowMini({
 // ─── Kanban board ───────────────────────────────────────────────────────────
 
 function KanbanBoard({
-  projects, isLoading, onProjectClick, onTransitioned,
+  projects, isLoading, onProjectClick, onTransitioned, progressByProject,
 }: {
   projects: Project[];
   isLoading: boolean;
   onProjectClick: (id: string) => void;
   onTransitioned: () => void;
+  progressByProject?: Map<string, DatasheetProgress> | null;
 }) {
   // Optimisztikus state: drop után azonnal mutatjuk az új oszlopban a kártyát.
   const [overrides, setOverrides] = useState<Record<string, string>>({});
@@ -526,6 +550,8 @@ function KanbanBoard({
                   <KanbanCard
                     key={p.id}
                     project={p}
+                    stateBar={col.bar}
+                    progress={progressByProject?.get(p.id)}
                     onClick={() => onProjectClick(p.id)}
                     onDragStart={e => handleDragStart(e, p)}
                   />
@@ -540,25 +566,34 @@ function KanbanBoard({
 }
 
 function KanbanCard({
-  project, onClick, onDragStart,
+  project, onClick, onDragStart, stateBar, progress,
 }: {
   project: Project;
   onClick: () => void;
   onDragStart: (e: React.DragEvent) => void;
+  /** Az oszlop állapot-színe (közös vizuál) — felső csík a kártyán. */
+  stateBar: string;
+  progress?: DatasheetProgress | null;
 }) {
   return (
     <div
       draggable
       onDragStart={onDragStart}
       onClick={onClick}
-      className="bg-white border border-gray-200 rounded-lg p-2.5 cursor-pointer hover:border-brand-300 hover:shadow-sm transition active:cursor-grabbing"
+      className="bg-white border border-gray-200 rounded-lg cursor-pointer hover:border-brand-300 hover:shadow-sm transition active:cursor-grabbing overflow-hidden"
     >
-      <div className="text-sm font-medium text-gray-900 truncate">{project.name}</div>
-      {project.description && (
-        <div className="text-[11px] text-gray-500 line-clamp-2 mt-1">{project.description}</div>
-      )}
-      <div className="text-[10px] text-gray-400 mt-1.5 tabular-nums">
-        {new Date(project.createdAt).toLocaleDateString('hu-HU', { month: 'short', day: 'numeric' })}
+      <div className={clsx('h-1 w-full', stateBar)} aria-hidden />
+      <div className="p-2.5">
+        <div className="text-sm font-medium text-gray-900 truncate">{project.name}</div>
+        {project.description && (
+          <div className="text-[11px] text-gray-500 line-clamp-2 mt-1">{project.description}</div>
+        )}
+        <div className="flex items-center justify-between gap-2 mt-1.5">
+          <span className="text-[10px] text-gray-400 tabular-nums">
+            {new Date(project.createdAt).toLocaleDateString('hu-HU', { month: 'short', day: 'numeric' })}
+          </span>
+          {progress && <DatasheetProgressBadge progress={progress} compact />}
+        </div>
       </div>
     </div>
   );
@@ -1042,7 +1077,7 @@ function MiniCrmImportButton({ onDone }: { onDone: () => void }) {
 
   // Csak admin / CEO látja
   const role = (currentUser as any)?.role;
-  if (role !== 'admin' && role !== 'ADMIN' && role !== 'ceo' && role !== 'CEO') return null;
+  if (!adminSzintu(role)) return null;
 
   async function runImport(force = false) {
     setBusy(true);
@@ -1153,7 +1188,7 @@ function MiniCrmImportSzobaButton({
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   const role = (currentUser as any)?.role;
-  const isAdmin = role === 'admin' || role === 'ADMIN' || role === 'ceo' || role === 'CEO';
+  const isAdmin = adminSzintu(role);
 
   // Escape-key handler — csak amikor a modal nyitva van.
   useEffect(() => {

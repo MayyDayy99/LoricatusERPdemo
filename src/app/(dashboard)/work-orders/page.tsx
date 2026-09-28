@@ -22,12 +22,14 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import useSWR from 'swr';
 import {
-  Plus, Search, Filter, Bookmark, Trash2,
+  Plus, Search, Filter, Bookmark, Trash2, Upload, Download, ArrowLeft, Loader2, FileText,
   ChevronUp, ChevronDown, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { toast as sonner } from 'sonner';
 import { apiClient } from '@/lib/api-client';
+import { getProjectQuickDocDownloadUrl } from '@/lib/hooks/use-project-quick-docs';
 import {
   useWorkOrders,
   bulkUpdateWorkOrders,
@@ -342,6 +344,15 @@ export default function WorkOrdersPage() {
   const [filters, setFilters] = useState<SegmentFilters>({});
   const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
 
+  /** „Feltöltött munkalapok" nézet — külön adatforrás (`project_quick_docs`),
+   *  nem a work_orders szűrése. Lásd a sidebar-gomb kommentjét. */
+  const [showUploaded, setShowUploaded] = useState(false);
+  const { data: uploadedRaw, isLoading: uploadedLoading } = useSWR(
+    showUploaded ? '/quick-docs?kind=worksheet' : null,
+    (url: string) => apiClient.get(url).then(r => r.data),
+  );
+  const uploadedWorksheets: UploadedWorksheet[] = uploadedRaw ?? [];
+
   const [sortField, setSortField] = useState<'workOrderNumber' | 'location' | 'client' | 'deadline'>('workOrderNumber');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
@@ -551,6 +562,28 @@ export default function WorkOrdersPage() {
                 <span className="flex-1 truncate">{t.workOrders.segments[id]}</span>
               </button>
             ))}
+
+            {/* Feltöltött munkalapok — NEM szűrő a work_orders felett, hanem
+                MÁSIK adatforrás (`project_quick_docs`, kind='worksheet').
+                A felhasználók itt keresték a feltöltött munkalapokat, de azok
+                addig csak projekt-szinten látszottak (2026-09-02 panasz).
+                Szándékosan külön szegmens: a strukturált munkalapnak van
+                állapota, határidője, tétel-checklistája — a feltöltött fájlnak
+                nincs, egy táblába keverve a szűrők és a tömeges műveletek
+                felemásak lennének. */}
+            <button
+              type="button"
+              onClick={() => setShowUploaded(v => !v)}
+              className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 mt-1 border-t border-gray-50 pt-2 ${
+                showUploaded ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              <Upload className="w-3.5 h-3.5 opacity-60" />
+              <span className="flex-1 truncate">Feltöltött munkalapok</span>
+              {uploadedWorksheets.length > 0 && (
+                <span className="text-[11px] text-gray-400 tabular-nums">{uploadedWorksheets.length}</span>
+              )}
+            </button>
           </div>
 
           <div className="bg-white rounded-xl border border-gray-100 p-3">
@@ -615,6 +648,14 @@ export default function WorkOrdersPage() {
         </aside>
 
         <div className="flex-1 min-w-0 space-y-4">
+          {showUploaded ? (
+            <UploadedWorksheetsList
+              items={uploadedWorksheets}
+              isLoading={uploadedLoading}
+              onBack={() => setShowUploaded(false)}
+            />
+          ) : (
+          <>
           {/* ── Search + state-filter ── */}
           <div className="flex gap-3 flex-wrap items-center">
             <div className="relative flex-1 min-w-48">
@@ -809,6 +850,8 @@ export default function WorkOrdersPage() {
               </button>
             </div>
           )}
+          </>
+          )}
         </div>
       </div>
 
@@ -834,5 +877,117 @@ export default function WorkOrdersPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/* ── Feltöltött munkalapok nézet ──────────────────────────────────────────
+ * A `project_quick_docs` (kind='worksheet') rekordjai tenant-szinten, a
+ * projekt nevével. Külön nézet, nem a fő tábla szűrése: a feltöltött fájlnak
+ * nincs állapota, határideje, tétel-checklistája — egy táblába keverve a
+ * szűrők és a tömeges műveletek felemásak lennének. */
+
+interface UploadedWorksheet {
+  id: string;
+  projectId: string;
+  projectName?: string;
+  fileName: string;
+  sizeBytes: number;
+  uploadedAt: string;
+}
+
+function UploadedWorksheetsList({
+  items, isLoading, onBack,
+}: {
+  items: UploadedWorksheet[];
+  isLoading: boolean;
+  onBack: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-brand-600 transition"
+        >
+          <ArrowLeft className="w-4 h-4" /> Vissza a munkalapokhoz
+        </button>
+      </div>
+
+      <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+        {isLoading ? (
+          <div className="p-8 text-center">
+            <Loader2 className="w-6 h-6 mx-auto text-gray-300 animate-spin" />
+          </div>
+        ) : items.length === 0 ? (
+          <div className="p-8 text-center">
+            <FileText className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+            <p className="text-sm text-gray-500">Még nincs feltöltött munkalap.</p>
+            <p className="text-xs text-gray-400 mt-1">
+              Munkalapot a projekt „Munkalapok” fülén tudsz feltölteni.
+            </p>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100">
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Fájlnév</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Projekt</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Méret</th>
+                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wide">Feltöltve</th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(doc => (
+                <UploadedWorksheetRow key={doc.id} doc={doc} />
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function UploadedWorksheetRow({ doc }: { doc: UploadedWorksheet }) {
+  const [busy, setBusy] = useState(false);
+  async function open() {
+    setBusy(true);
+    try {
+      const { url } = await getProjectQuickDocDownloadUrl(doc.projectId, doc.id);
+      window.open(url, '_blank', 'noopener');
+    } catch {
+      sonner.error('A fájl nem érhető el');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <tr className="border-b border-gray-50 hover:bg-gray-50 transition">
+      <td className="px-4 py-3 font-medium text-gray-900">{doc.fileName}</td>
+      <td className="px-4 py-3">
+        {doc.projectName ? (
+          <Link href={`/projects/${doc.projectId}`} className="text-brand-600 hover:underline">
+            {doc.projectName}
+          </Link>
+        ) : (
+          <span className="text-gray-400">—</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-gray-400">{Math.round(doc.sizeBytes / 1024)} KB</td>
+      <td className="px-4 py-3 text-gray-400">
+        {doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleDateString('hu-HU') : '—'}
+      </td>
+      <td className="px-4 py-3 text-right">
+        <button
+          onClick={open}
+          disabled={busy}
+          className="inline-flex items-center gap-1 text-xs text-brand-600 hover:underline disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+          Letöltés
+        </button>
+      </td>
+    </tr>
   );
 }

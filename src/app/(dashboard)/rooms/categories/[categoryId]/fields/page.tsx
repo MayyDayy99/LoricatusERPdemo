@@ -26,6 +26,7 @@ const TYPE_LABEL: Record<CustomFieldType, string> = {
   textarea: 'Hosszú szöveg',
   number: 'Szám',
   date: 'Dátum',
+  datetime: 'Dátum + időpont',
   boolean: 'Igen / Nem',
   select: 'Választólista',
   multiselect: 'Többszörös választás',

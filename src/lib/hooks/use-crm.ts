@@ -5,17 +5,19 @@ import { apiClient } from '../api-client';
 // amit a projekt Newsfeed `/projects/{id}/activity` SWR-kulcson keresztül olvas.
 // A frontend SWR-cache-ét NEM frissíti a hálózati válasz önmagában — explicit
 // revalidate kell, különben a timeline csak F5 után frissül.
-function revalidateProjectScope(projectId?: string | null) {
+function revalidateProjectScope(projectId?: string | null, includeTaskLists = true) {
   if (!projectId) return;
   void swrMutate(`/projects/${projectId}/activity`);
   void swrMutate(`/activities/project/${projectId}`);
+  if (!includeTaskLists) return;
   // A useCrmTasks SWR-kulcsai dinamikusak (buildKey), ezért prefix-match-tel
-  // invalidáljuk az összes /crm-tasks?... kulcsot.
-  void swrMutate(
-    (key) => typeof key === 'string' && key.startsWith('/crm-tasks'),
-    undefined,
-    { revalidate: true },
-  );
+  // revalidáljuk az összes /crm-tasks?... kulcsot.
+  //
+  // FONTOS: NEM adunk át `undefined`-ot adatként — az KIÜRÍTENÉ a cache-t,
+  // amitől a lista eltűnik, az `isLoading` igazzá válik, és a "Töltés…" sor
+  // lelöki az egész táblát, majd visszaugrik. Csak revalidálunk: a régi adat
+  // látszik, amíg a friss meg nem érkezik (stale-while-revalidate).
+  void swrMutate((key) => typeof key === 'string' && key.startsWith('/crm-tasks'));
 }
 
 // A "Mai napom" forrás-kulcsait FELTÉTEL NÉLKÜL revalidálja. A
@@ -234,11 +236,24 @@ export function useOverdueTasks() {
   return { tasks: data ?? [], error, isLoading, mutate };
 }
 
+/** A backend `take` felső korlátja (crm-tasks.controller: @Max(200)). */
+export const CRM_TASKS_MAX_TAKE = 200;
+
 export function useCrmTasks(
-  filters?: { assignedTo?: string; status?: string; projectId?: string },
+  /** `take`: a backend alapértelmezése 50 — projekt-nézetben ez CSENDBEN
+   *  levágta a listát (101 feladatból 50 látszott, és a határidő nélküli új
+   *  feladatok a `dueDate ASC` rendezés miatt a vágás mögé estek, tehát
+   *  létrehozás után "nem jelentek meg"). Ahol a teljes lista kell, adj át
+   *  explicit `take`-et. */
+  filters?: { assignedTo?: string; status?: string; projectId?: string; take?: number },
   skip?: boolean,
 ) {
-  const key = skip ? null : buildKey('/crm-tasks', filters);
+  const key = skip
+    ? null
+    : buildKey('/crm-tasks', filters && {
+        ...filters,
+        take: filters.take !== undefined ? String(filters.take) : undefined,
+      });
   const { data, error, isLoading, mutate } = useSWR<CrmTask[]>(key, fetcher);
   return { tasks: data ?? [], error, isLoading, mutate };
 }
@@ -284,9 +299,19 @@ export function useInvoices(filters?: { state?: string; customerId?: string }) {
 
 // ─── Mutations ───────────────────────────────────────────────────────────────
 
-export async function completeCrmTask(id: string): Promise<CrmTask> {
+/**
+ * @param opts.revalidateTaskLists — `false`-szal a `/crm-tasks?...` listák
+ *   NEM frissülnek azonnal. A projekt-nézet lezárás-animációja ezt használja:
+ *   ott a sor még ~1 másodpercig látszik (pipa → kifutás), és ha a lista
+ *   közben újratöltene, a sor a "Lezárva" csoportba ugorva eltűnne az
+ *   animáció közepén. A hívó a saját `mutate()`-jével frissít a végén.
+ */
+export async function completeCrmTask(
+  id: string,
+  opts?: { revalidateTaskLists?: boolean },
+): Promise<CrmTask> {
   const res = await apiClient.post(`/crm-tasks/${id}/complete`);
-  revalidateProjectScope(res.data?.projectId);
+  revalidateProjectScope(res.data?.projectId, opts?.revalidateTaskLists !== false);
   revalidateMyScope();
   return res.data;
 }
@@ -864,11 +889,9 @@ export async function mergeCustomers(
 ): Promise<MergeCustomersResult> {
   const res = await apiClient.post('/customers/merge', { primaryId, mergeIds });
   // Egy merge után a customer-lista és a duplicates-lista is elavult.
-  void swrMutate(
-    (key) => typeof key === 'string' && key.startsWith('/customers'),
-    undefined,
-    { revalidate: true },
-  );
+  // Csak revalidálunk — `undefined` adattal a cache KIÜRÜLNE, amitől a lista
+  // egy pillanatra eltűnne és a "Töltés…" lelökné a tartalmat.
+  void swrMutate((key) => typeof key === 'string' && key.startsWith('/customers'));
   return res.data;
 }
 
@@ -891,11 +914,8 @@ export async function bulkUpdateCustomers(
 ): Promise<BulkUpdateResult> {
   const res = await apiClient.post('/customers/bulk-update', { ids, patch });
   // Minden customers-kulcs (lista + duplicates + summary) elavult.
-  void swrMutate(
-    (key) => typeof key === 'string' && key.startsWith('/customers'),
-    undefined,
-    { revalidate: true },
-  );
+  // Csak revalidálunk (lásd mergeCustomers) — a cache kiürítése villanást okoz.
+  void swrMutate((key) => typeof key === 'string' && key.startsWith('/customers'));
   return res.data;
 }
 

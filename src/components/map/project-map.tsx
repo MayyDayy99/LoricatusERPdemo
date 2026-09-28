@@ -152,8 +152,12 @@ export function ProjectMap({
       });
 
       projects.forEach((project) => {
-        if (!project.location) return;
-        const { latitude: lat, longitude: lng } = project.location;
+        // A helyszin lehet RESZLEGES (csak cim, koordinata nelkul) — ilyenkor
+        // nincs mit kirakni a terkepre. A `location` objektum letezese tehat
+        // NEM eleg felteteli; a koordinata kell.
+        const lat = project.location?.latitude;
+        const lng = project.location?.longitude;
+        if (typeof lat !== 'number' || typeof lng !== 'number') return;
         const existing = markersRef.current.get(project.id);
         if (existing) { existing.setLatLng([lat, lng]); return; }
 
@@ -176,8 +180,10 @@ export function ProjectMap({
     const map = mapRef.current;
     if (!map || !selectedProjectId) return;
     const project = projects.find((p) => p.id === selectedProjectId);
-    if (!project?.location) return;
-    map.flyTo([project.location.latitude, project.location.longitude], 14, { duration: 1 });
+    const lat = project?.location?.latitude;
+    const lng = project?.location?.longitude;
+    if (typeof lat !== 'number' || typeof lng !== 'number') return;
+    map.flyTo([lat, lng], 14, { duration: 1 });
     markersRef.current.get(selectedProjectId)?.openPopup();
   }, [selectedProjectId, projects]);
 

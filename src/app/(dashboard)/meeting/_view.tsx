@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import { clsx } from 'clsx';
 import { toast } from 'sonner';
+import { PENZ_TASK_TIPUSOK, ProjektUzletiJelzo, penzErtelmez } from './projekt-uzleti';
+import { useCanAccess } from '@/lib/hooks/use-access';
 import { Plus, Maximize2, Minimize2, ZoomIn, ZoomOut, Map as MapIcon, PanelRight, Sun, CloudSun, CloudFog, CloudRain, CloudSnow, CloudRainWind, CloudLightning, Cloud, Wind, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { useCurrentUser } from '@/lib/hooks/use-users';
@@ -43,6 +45,7 @@ import {
   type DashboardTaskStatus,
   type TaskDurationRevision,
 } from '@/lib/hooks/use-dashboard';
+import { ProjectLocationPanel } from '@/components/project/project-location-panel';
 import {
   createPing as apiCreatePing,
   createAndSendNow as apiCreateAndSendNow,
@@ -52,13 +55,17 @@ import {
 import { useCustomer, useCustomers } from '@/lib/hooks/use-crm';
 import { useProjectWorkflowState } from '@/lib/hooks/use-project-workflow';
 import { WorkflowStatusPanel } from '@/components/projects/workflow-status-panel';
+import { WorksheetPanel } from '@/components/projects/worksheet-panel';
 import {
   useProjectQuickDocs, uploadProjectQuickDoc, getProjectQuickDocDownloadUrl,
   deleteProjectQuickDoc, hasQuickDoc, filterQuickDocs,
   type ProjectQuickDocKind, type ProjectQuickDoc,
 } from '@/lib/hooks/use-project-quick-docs';
 import styles from './tv-dashboard.module.css';
+import { RozikaAtiratModal } from './rozika-atirat';
+import { useRozikaAllapot } from '@/lib/hooks/use-rozika';
 import { useT } from '@/lib/hooks/use-t';
+import { stateVisual } from '@/lib/project-state-visuals';
 
 /* ── CONFIG ───────────────────────────────────────────────────── */
 // P4 (#8): DAYS_AHEAD_DEFAULT 730 → 180. A 2 éves alaphorizont ~1460 mindig-jelenlévő
@@ -1341,21 +1348,41 @@ const ProjectRow = React.memo(function ProjectRow({
   const onTaskMutateRef = useRef(onTaskMutate);
   onTaskMutateRef.current = onTaskMutate;
 
+  // Folyamatban lévő pipálások feladatonként: amíg egy kérés fut (és utána még
+  // ~700 ms-ig), ugyanarra a feladatra a második kattintás nem indít újabbat —
+  // különben egy dupla kattintás a „kész" után azonnal visszaállítaná.
+  const pipalasFolyamatban = useRef(new Set<string>());
+
   const taskBarHandlers = useMemo<TaskBarHandlers>(
     () => ({
       moveDown: (task, e) => startDragRef.current(e, task, 'move'),
       resizeDown: (task, e) => startDragRef.current(e, task, 'resize'),
       click: (task) => onTaskClickRef.current(task),
       toggleDone: async (task) => {
+        if (pipalasFolyamatban.current.has(task.id)) return;
+        pipalasFolyamatban.current.add(task.id);
+        const kezdet = Date.now();
         const next = task.status === 'completed' ? 'in_progress' : 'completed';
         try {
-          await updatePlanTask(task.id, { status: next });
+          // `expectedStatus`: amit a képernyőn láttunk. Ha a feladatot közben
+          // más módosította, a szerver 409-et ad, és nem írjuk felül.
+          await updatePlanTask(task.id, { status: next, expectedStatus: task.status });
           await onTaskMutateRef.current();
           toast.success(
             next === 'completed' ? 'Task késznek jelölve' : 'Task visszaállítva folyamatban-ra',
           );
         } catch (err: any) {
-          toast.error(err?.response?.data?.message ?? 'Mentés sikertelen');
+          if (err?.response?.status === 409) {
+            toast.error(err.response.data?.message ?? 'A feladat állapota közben megváltozott — frissítettük.');
+            await onTaskMutateRef.current();
+          } else {
+            toast.error(err?.response?.data?.message ?? 'Mentés sikertelen');
+          }
+        } finally {
+          // A kérés után még ~700 ms-ig nem fogadunk újabb kattintást (dupla kattintás).
+          const hatra = 700 - (Date.now() - kezdet);
+          if (hatra > 0) setTimeout(() => pipalasFolyamatban.current.delete(task.id), hatra);
+          else pipalasFolyamatban.current.delete(task.id);
         }
       },
     }),
@@ -1700,6 +1727,18 @@ const ProjectRow = React.memo(function ProjectRow({
     return set;
   }, [overview.dayAnnotations, plane.project.id]);
 
+  // Részhatáridők ugyanezen a soron — sárgával. Egy projekthez több is tartozhat,
+  // ezért halmaz, nem egyetlen dátum.
+  const projectReszHataridoDates = useMemo(() => {
+    const set = new Set<string>();
+    for (const a of overview.dayAnnotations) {
+      if (a.type === 'resz_hatarido' && a.projectId === plane.project.id) {
+        set.add(a.date.slice(0, 10));
+      }
+    }
+    return set;
+  }, [overview.dayAnnotations, plane.project.id]);
+
   // Same logic for légtér: each project has its own permit windows in its own
   // location, so the start/end edges are only painted on the matching row.
   const projectLegterStartDates = useMemo(() => {
@@ -1732,9 +1771,13 @@ const ProjectRow = React.memo(function ProjectRow({
     return arr;
   }, [overview.scheduledPings, plane.project.id]);
 
-  // Subtle project-colour wash — the eye can trace a bar back to its row name.
-  // ~10% opacity on white keeps it visible without competing with the task bars.
-  const rowTint = plane.color + '1a'; // 1a = 26/255 ≈ 10%
+  // Sor-háttér = a projekt ÁLLAPOT-színe (közös vizuál, lásd
+  // `project-state-visuals.ts`) — ugyanaz a szín, mint a Kanban-oszlopon és a
+  // lista bal sávján, így egy Kanban-áthúzás („Aktív") itt is azonnal látszik.
+  // A bal 4 px-es swatch marad a SZOBA színe (`plane.color`), hogy a két
+  // információ ne versenyezzen egymással.
+  // ~10% opacity fehéren: látszik, de nem nyomja el a task-sávokat.
+  const rowTint = stateVisual(plane.project.state).hex + '1a'; // 1a = 26/255 ≈ 10%
 
   const isBeingDragged = draggingProjectId === plane.project.id;
 
@@ -1757,13 +1800,14 @@ const ProjectRow = React.memo(function ProjectRow({
             d.isPast && styles.past,
             d.hasMunkaszunet && styles.munkaszunet,
             projectDeadlineDates.has(d.iso) && styles.hatarido,
+            projectReszHataridoDates.has(d.iso) && styles.reszHatarido,
             projectLegterStartDates.has(d.iso) && styles.legterStart,
             projectLegterEndDates.has(d.iso) && styles.legterEnd,
           )}
           style={{ left: i * dayWidth }}
         />
       )),
-    [days, dayWidth, projectDeadlineDates, projectLegterStartDates, projectLegterEndDates],
+    [days, dayWidth, projectDeadlineDates, projectReszHataridoDates, projectLegterStartDates, projectLegterEndDates],
   );
 
   // P2 — Rejtett task-hint csíkok memoizálása. Csak collapsed multi-lane projekten
@@ -1836,6 +1880,9 @@ const ProjectRow = React.memo(function ProjectRow({
       >
         <div className={styles.rowColor} style={{ height: 28, background: plane.color }} />
         <span className={styles.rowName}>{plane.project.name}</span>
+        {plane.project.categoryType !== 'OfficeAdmin' && (
+          <ProjektUzletiJelzo project={plane.project} onChanged={onTaskMutate} />
+        )}
       </button>
       {/* Dedikált chevron-oszlop: fix hely a rowLabel és a rowTracks között, hogy
           a hover-expand miatti rowLabel-szélesedés ne mozgassa a gombot. */}
@@ -2148,9 +2195,15 @@ function TaskModal({
     status: 'pending' as DashboardTaskStatus,
     dependsOnId: '',
     durationChangeReason: '',
+    osszeg: '',
   });
   const [saving, setSaving] = useState(false);
   const [showRevisions, setShowRevisions] = useState(false);
+  // Számlázás / Várható kifizetés: az összeg a heti vezetői riport pénzes
+  // soraihoz. Írni a projektvezető és fölötte tudja.
+  const penzJog = useCanAccess('project.commercial');
+  const penzTask = PENZ_TASK_TIPUSOK.includes(form.taskType);
+  const osszegSzam = penzErtelmez(form.osszeg);
 
   useEffect(() => {
     if (!task) return;
@@ -2165,6 +2218,7 @@ function TaskModal({
       status: task.status,
       dependsOnId: task.dependsOnId ?? '',
       durationChangeReason: '',
+      osszeg: task.osszeg != null ? Math.round(task.osszeg).toLocaleString('hu-HU') : '',
     });
   }, [task]);
 
@@ -2222,8 +2276,66 @@ function TaskModal({
   const prevTask = currentIdx > 0 ? siblings[currentIdx - 1] : null;
   const nextTask = currentIdx >= 0 && currentIdx < siblings.length - 1 ? siblings[currentIdx + 1] : null;
 
+  // Átgördülés a szomszéd taskra: előbb kicsúszik a hármas a kért irányba,
+  // majd a navigáció után az új tartalommal visszaáll. Az irány-state csak az
+  // animáció idejére él.
+  const [slideDir, setSlideDir] = useState<'prev' | 'next' | null>(null);
+  const SLIDE_MS = 260;
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * Van-e mentetlen módosítás? A szomszéd-kártyák sokkal hívogatóbbak, mint a
+   * régi gombpár volt — enélkül egy félbehagyott szerkesztés némán elveszne.
+   */
+  const isDirty = useMemo(() => {
+    if (!task) return false;
+    return (
+      form.title !== task.title ||
+      form.taskType !== task.taskType ||
+      form.assignedTo !== (task.assignedTo ?? '') ||
+      form.startDate !== (task.startDate?.slice(0, 10) ?? '') ||
+      form.duration !== (task.duration ?? 1) ||
+      form.status !== task.status ||
+      form.dependsOnId !== (task.dependsOnId ?? '') ||
+      JSON.stringify(form.helpers) !== JSON.stringify(task.helpers ?? []) ||
+      JSON.stringify(form.equipmentIds) !== JSON.stringify(task.equipmentIds ?? [])
+    );
+  }, [form, task]);
+
+  const navigateWithSlide = useCallback((target: DashboardTask, dir: 'prev' | 'next') => {
+    if (slideDir) return; // már fut egy átmenet
+    if (isDirty && !window.confirm(tm.unsavedNavConfirm)) return;
+    setSlideDir(dir);
+    window.setTimeout(() => {
+      onNavigate(target);
+      setSlideDir(null);
+      // Az új task tetejéről induljunk — különben a lánc közepén ott ragadna
+      // a görgetés, ahol az előző taskban jártunk.
+      modalRef.current?.scrollTo({ top: 0 });
+    }, SLIDE_MS);
+  }, [slideDir, isDirty, onNavigate, tm.unsavedNavConfirm]);
+
+  // Billentyűzet: ← / → lépteti a láncot. Ez a legtermészetesebb mozdulat,
+  // ha valaki végignéz egy projekt task-sorát. Beviteli mezőben NEM aktív,
+  // hogy a szövegkurzor mozgatását ne akadályozza.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      const el = e.target as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.key === 'ArrowLeft' ? prevTask : nextTask;
+      if (!target) return;
+      e.preventDefault();
+      navigateWithSlide(target, e.key === 'ArrowLeft' ? 'prev' : 'next');
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [prevTask, nextTask, navigateWithSlide]);
+
   const warnings = getTaskWarnings(
-    { ...task, ...form, equipmentIds: form.equipmentIds, assignedTo: form.assignedTo || undefined, dependsOnId: form.dependsOnId || undefined },
+    { ...task, ...form, osszeg: task.osszeg, equipmentIds: form.equipmentIds, assignedTo: form.assignedTo || undefined, dependsOnId: form.dependsOnId || undefined },
     overview.people, overview.equipment, overview.tasks, overview.dayAnnotations, overview.projects,
   );
 
@@ -2253,8 +2365,17 @@ function TaskModal({
         durationChangeReason: form.durationChangeReason || undefined,
         equipmentIds: form.equipmentIds,
         dependsOnId: form.dependsOnId || null,
-        status: form.status,
+        // Az állapotot CSAK akkor küldjük, ha a felhasználó az ablakban átállította.
+        // Korábban minden mentés a megnyitáskori állapotot írta vissza — ha a
+        // feladatot közben kipipálták, a mentés visszanyitotta. `expectedStatus`:
+        // amit megnyitáskor láttunk; ha azóta más döntött, a szerver 409-et ad.
+        ...(form.status !== currentTask.status
+          ? { status: form.status, expectedStatus: currentTask.status }
+          : {}),
       });
+      if (penzTask && penzJog && !Number.isNaN(osszegSzam) && osszegSzam !== (currentTask.osszeg ?? null)) {
+        await apiClient.patch(`/executive-report/tasks/${currentTask.id}/amount`, { osszeg: osszegSzam });
+      }
       onSaved();
       if (continueChain && currentTask.projectId) {
         // Folytatás: bezárjuk a modalt, és a parent megnyit egy NewTaskModal-t
@@ -2273,6 +2394,9 @@ function TaskModal({
       }
     } catch (err: any) {
       toast.error(err?.response?.data?.message ?? tm.saveFail);
+      // 409: a feladat állapotát közben más módosította — frissítjük a nézetet,
+      // hogy a felhasználó a valódi állapotot lássa, mielőtt újra dönt.
+      if (err?.response?.status === 409) onSaved();
     } finally {
       setSaving(false);
     }
@@ -2304,7 +2428,25 @@ function TaskModal({
 
   return (
     <div className={styles.modalBg} onClick={onClose}>
-      <div className={styles.modal} onClick={e => e.stopPropagation()}>
+      <div
+        className={clsx(
+          styles.taskNavRow,
+          slideDir && styles.taskNavRowSliding,
+          slideDir === 'next' && styles.taskNavSlideNext,
+          slideDir === 'prev' && styles.taskNavSlidePrev,
+        )}
+      >
+        {/* Előző task — csak navigál, nem szerkeszt (l. TaskPeekCard) */}
+        <TaskPeekCard
+          task={prevTask}
+          side="prev"
+          label={tm.prevTaskBtn}
+          people={overview.people}
+          taskTypes={taskTypes}
+          onSelect={t => navigateWithSlide(t, 'prev')}
+        />
+
+      <div className={styles.modal} ref={modalRef} onClick={e => e.stopPropagation()}>
         <div className={styles.modalHead}>
           <div style={{ flex: 1 }}>
             <div className={styles.modalSub}>{tm.projectLabel}</div>
@@ -2384,6 +2526,32 @@ function TaskModal({
             )}
           </select>
         </div>
+
+        {/* Összeg — csak a pénz-taskokon (Számlázás, Várható kifizetés) */}
+        {penzTask && (
+          <div className={styles.formRow}>
+            <div className={styles.formLabel}>Összeg (Ft)</div>
+            <div style={{ flex: 1 }}>
+              <input
+                className={styles.formInput}
+                data-testid="task-osszeg"
+                value={form.osszeg}
+                disabled={!penzJog}
+                onChange={e => setForm(f => ({ ...f, osszeg: e.target.value }))}
+                placeholder="pl. 2 400 000 vagy 2,4M"
+                inputMode="decimal"
+                style={Number.isNaN(osszegSzam) ? { borderColor: '#DC2626' } : undefined}
+              />
+              <div style={{ fontSize: 11, opacity: 0.7, marginTop: 2 }}>
+                {Number.isNaN(osszegSzam)
+                  ? 'Csak szám, pl. 2 400 000 vagy 2,4M'
+                  : form.taskType === 'szamla' || form.taskType === 'szamlazas'
+                    ? 'A kiszámlázott összeg — a task lezárása = a számla kiment.'
+                    : 'A várt befizetés — a task dátuma a fizetési határidő, a lezárása = a pénz megjött.'}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* További érintettek (helpers) — collapse-olható szekció */}
         <HelpersField
@@ -2473,31 +2641,15 @@ function TaskModal({
           />
         )}
 
-        {/* Kapcsolódó task */}
+        {/* Kapcsolódó task — az „Előtte / Utána" gombpár helyét a modál két
+            oldalán megjelenő TaskPeekCard-ok vették át. Itt már csak a
+            sablonból-generálás marad (az NEM navigáció, hanem új task
+            létrehozása), és a lánc-számláló. */}
         <div className={styles.formRow}>
-          <div className={styles.formLabel}>{tm.relatedTaskLabel}</div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button
-              type="button"
-              className={styles.switchBtn}
-              disabled={!prevTask}
-              onClick={() => prevTask && onNavigate(prevTask)}
-              title={prevTask ? prevTask.title : tm.noPrevTask}
-              style={{ flex: 1, justifyContent: 'center' }}
-            >
-              {tm.prevTaskBtn} {prevTask && <span style={{ opacity: 0.6, marginLeft: 4 }}>· {prevTask.title}</span>}
-            </button>
-            {nextTask ? (
-              <button
-                type="button"
-                className={styles.switchBtn}
-                onClick={() => onNavigate(nextTask)}
-                title={nextTask.title}
-                style={{ flex: 1, justifyContent: 'center' }}
-              >
-                {tm.nextTaskBtn} <span style={{ opacity: 0.6, marginLeft: 4 }}>· {nextTask.title}</span>
-              </button>
-            ) : (
+          {!nextTask && (
+            <>
+              <div className={styles.formLabel}>{tm.relatedTaskLabel}</div>
+              <div style={{ display: 'flex', gap: 6 }}>
               <button
                 type="button"
                 className={styles.switchBtn}
@@ -2535,11 +2687,40 @@ function TaskModal({
               >
                 {tm.templateTaskBtn}
               </button>
-            )}
-          </div>
+              </div>
+            </>
+          )}
+          {/* Szűk kijelzőn a szomszéd-kártyák el vannak rejtve (nem férnének
+              el olvashatóan), ezért ott kompakt gombokkal marad meg a
+              lánc-navigáció — különben ott egyáltalán nem lehetne lépkedni. */}
+          {(prevTask || nextTask) && (
+            <div className={styles.peekFallbackNav}>
+              <button
+                type="button"
+                className={styles.switchBtn}
+                disabled={!prevTask}
+                onClick={() => prevTask && navigateWithSlide(prevTask, 'prev')}
+                title={prevTask?.title ?? tm.noPrevTask}
+                style={{ flex: 1, justifyContent: 'center' }}
+              >
+                ← {tm.prevTaskBtn}
+              </button>
+              <button
+                type="button"
+                className={styles.switchBtn}
+                disabled={!nextTask}
+                onClick={() => nextTask && navigateWithSlide(nextTask, 'next')}
+                title={nextTask?.title ?? ''}
+                style={{ flex: 1, justifyContent: 'center' }}
+              >
+                {tm.nextTaskBtn} →
+              </button>
+            </div>
+          )}
           {siblings.length > 1 && (
             <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4, textAlign: 'center' }}>
               {tm.siblingsCounter(currentIdx + 1, siblings.length)}
+              <span style={{ marginLeft: 6, opacity: 0.7 }}>{tm.arrowKeyHint}</span>
             </div>
           )}
         </div>
@@ -2641,6 +2822,75 @@ function TaskModal({
         >
           {deleteConfirm ? tm.deleteConfirm : tm.deleteBtn}
         </button>
+      </div>
+
+        {/* Következő task — csak navigál, nem szerkeszt (l. TaskPeekCard) */}
+        <TaskPeekCard
+          task={nextTask}
+          side="next"
+          label={tm.nextTaskBtn}
+          people={overview.people}
+          taskTypes={taskTypes}
+          onSelect={t => navigateWithSlide(t, 'next')}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A megnyitott task melletti szomszéd-kártya (előző / következő a láncban).
+ *
+ * Szándékosan CSAK navigál: hoverre a tartalom elhomályosul és egy nyíl-overlay
+ * veszi át — így egyértelmű, hogy kattintásra átlépünk rá, és nem lehet
+ * véletlenül a szomszéd taskot szerkeszteni. A kártya 3/4 akkora, mint a
+ * középső modál, és halványabb, hogy a fókusz a szerkesztett taskon maradjon.
+ *
+ * Ha nincs szomszéd, egy azonos szélességű üres placeholder marad a helyén,
+ * nehogy a középső modál oldalra ugorjon.
+ */
+function TaskPeekCard({
+  task, side, label, people, taskTypes, onSelect,
+}: {
+  task: DashboardTask | null;
+  side: 'prev' | 'next';
+  label: string;
+  people: DashboardPerson[];
+  taskTypes: TaskType[] | null;
+  onSelect: (t: DashboardTask) => void;
+}) {
+  if (!task) return <div className={styles.peekPlaceholder} aria-hidden />;
+
+  const assignee = task.assignedTo ? people.find(p => p.id === task.assignedTo) : null;
+  const typeColor = getTaskTypeColor(taskTypes ?? [], task.taskType);
+  const start = task.startDate ? parseDate(task.startDate) : null;
+
+  return (
+    <div
+      className={styles.peekCard}
+      role="button"
+      tabIndex={0}
+      aria-label={`${label}: ${task.title}`}
+      title={task.title}
+      // `stopPropagation`: a kártya a háttér (modalBg) felett ül, ami
+      // kattintásra ZÁRJA a modált. A kártyák KÖZÖTTI résen viszont
+      // szándékosan átmegy a kattintás — ott a bezárás a helyes viselkedés.
+      onClick={e => { e.stopPropagation(); onSelect(task); }}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(task); }
+      }}
+    >
+      <div className={styles.peekBody}>
+        <div className={styles.peekLabel}>{label}</div>
+        <div className={styles.peekTitle}>{task.title}</div>
+        <div className={styles.peekMeta}>
+          {typeColor && <span className={styles.peekTypeDot} style={{ background: typeColor }} />}
+          {start && <span>{start.toLocaleDateString('hu-HU', { month: 'short', day: 'numeric' })}</span>}
+          {assignee && <span>· {assignee.lastName} {assignee.firstName}</span>}
+        </div>
+      </div>
+      <div className={styles.peekArrow} aria-hidden>
+        <span className={styles.peekArrowCircle}>{side === 'prev' ? '←' : '→'}</span>
       </div>
     </div>
   );
@@ -2922,6 +3172,9 @@ const DAY_TYPE_COLOR: Record<DayAnnotationType, string> = {
   szabadsag:   '#3b82f6',
   szerviz:     '#f97316',
   hatarido:    '#dc2626',
+  // Sárga: a részhatáridő figyelmeztet, de nem a projekt vége — a piros marad
+  // annak, ami tényleg zár.
+  resz_hatarido: '#eab308', // yellow-500
   legter:      '#0284c7', // sky-600 — kék
 };
 
@@ -2973,6 +3226,16 @@ function DayModal({
   // Hatarido/legter: a user explicit kattintással szerkeszt egy meglévőt.
   // editingId === null → minden mentés új rekord (nincs limit egy napra).
   const [editingId, setEditingId] = useState<string | null>(null);
+  /**
+   * A HATÁRIDŐ fülön belüli választás: a projekt VÉGSŐ határideje (piros, egy
+   * van belőle), vagy egy RÉSZhatáridő (sárga, több is lehet).
+   *
+   * Miért a fülön belül, és nem külön fülként: a felhasználó fejében ez egy
+   * dolog két fajtája — a kettőt egymás mellett akarja látni, nem a jelölés-
+   * típusok sorában keresgélni.
+   */
+  const [reszHatarido, setReszHatarido] = useState(false);
+  const hataridoTipus: DayAnnotationType = reszHatarido ? 'resz_hatarido' : 'hatarido';
 
   // Currently editable record. Munkaszunet/szerviz: 1 rekord/nap (auto-find).
   // Hatarido/legter/szabadsag: csak ha a user explicit edit-elt egyet (editingId set).
@@ -3017,7 +3280,8 @@ function DayModal({
   }, [existing?.id, tab, safeDate]);
 
   // Tab váltáskor reset editingId (ne maradjon árva).
-  useEffect(() => { setEditingId(null); }, [tab, safeDate]);
+  // Fül- vagy napváltáskor a szerkesztés és a határidő-fajta is alapra áll.
+  useEffect(() => { setEditingId(null); setReszHatarido(false); }, [tab, safeDate]);
 
   if (!date) return null;
   const currentDate = date;
@@ -3044,7 +3308,16 @@ function DayModal({
       finalLabel = e ? t.meeting.dayModal.equipmentLabelWith(e.name) : t.meeting.dayModal.equipmentLabelFallback;
     } else if (tab === 'hatarido') {
       const p = overview.projects.find(x => x.id === projectId);
-      finalLabel = p ? t.meeting.dayModal.hataridoLabelWith(p.name) : t.meeting.dayModal.hataridoLabelFallback;
+      if (reszHatarido) {
+        // A részhatáridőnek NEVE van („Tervek leadása"), nem csak projektje — ez
+        // különbözteti meg a többi részhatáridőtől ugyanazon a projekten.
+        const sajat = label.trim();
+        finalLabel = p
+          ? t.meeting.dayModal.reszHataridoLabelWith(p.name, sajat)
+          : (sajat || t.meeting.dayModal.reszHataridoLabelFallback);
+      } else {
+        finalLabel = p ? t.meeting.dayModal.hataridoLabelWith(p.name) : t.meeting.dayModal.hataridoLabelFallback;
+      }
     } else if (tab === 'legter') {
       const p = overview.projects.find(x => x.id === projectId);
       const base = label.trim() || t.meeting.dayModal.defaultLegterLabel;
@@ -3126,7 +3399,8 @@ function DayModal({
       }
 
       const payload: any = {
-        date: currentDate, type: tab, label: finalLabel,
+        // A határidő fülön a választás dönti el, melyik fajtát mentjük.
+        date: currentDate, type: tab === 'hatarido' ? hataridoTipus : tab, label: finalLabel,
         equipmentId: tab === 'szerviz'   ? equipmentId : undefined,
         projectId:   tab === 'hatarido' || tab === 'legter' ? projectId : undefined,
         endDate:     tab === 'legter'    ? endDate     : undefined,
@@ -3351,12 +3625,47 @@ function DayModal({
         )}
         {tab === 'hatarido' && (
           <>
+            {/* A határidőnek KÉT fajtája van, és ez itt dől el — nem a jelölés-
+                típusok sorában. A végső a projekt zárása (piros, egy van), a
+                rész egy közbenső mérföldkő (sárga, több is lehet). */}
+            <div className={styles.formRow}>
+              <div className={styles.formLabel}>{t.meeting.dayModal.hataridoKindLabel}</div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {([false, true] as const).map(resz => (
+                  <button
+                    key={String(resz)}
+                    type="button"
+                    onClick={() => {
+                      if (resz === reszHatarido) return;
+                      setReszHatarido(resz);
+                      // A két fajta más mezőket használ: a nevet ne vigyük át.
+                      setLabel('');
+                      setEditingId(null);
+                    }}
+                    style={{
+                      flex: 1, padding: '6px 10px', fontSize: 12, borderRadius: 6, cursor: 'pointer',
+                      border: `1px solid ${reszHatarido === resz ? (resz ? '#eab308' : '#dc2626') : '#d1d5db'}`,
+                      background: reszHatarido === resz ? (resz ? '#fef9c3' : '#fee2e2') : '#fff',
+                      fontWeight: reszHatarido === resz ? 600 : 400,
+                    }}
+                  >
+                    {resz ? t.meeting.dayModal.hataridoKindPartial : t.meeting.dayModal.hataridoKindFinal}
+                  </button>
+                ))}
+              </div>
+            </div>
             <ExistingAnnotationsList
-              kind="hatarido"
-              records={dayAnns.filter(a => a.type === 'hatarido')}
+              kind={hataridoTipus}
+              records={dayAnns.filter(a => a.type === hataridoTipus)}
               projects={overview.projects}
               editingId={editingId}
-              onEdit={id => setEditingId(id)}
+              onEdit={id => {
+                // A lista a kiválasztott fajtát mutatja, de ha mégis másik
+                // típusú rekordra kattintanak, a fajta kövesse azt.
+                const r = dayAnns.find(a => a.id === id);
+                if (r) setReszHatarido(r.type === 'resz_hatarido');
+                setEditingId(id);
+              }}
               onNewClick={() => setEditingId(null)}
               onDelete={async id => {
                 try { await deleteDayAnnotation(id); onSaved(); }
@@ -3364,12 +3673,27 @@ function DayModal({
               }}
             />
             <div className={styles.formRow}>
-              <div className={styles.formLabel}>{t.meeting.dayModal.hataridoProjectLabel}</div>
+              <div className={styles.formLabel}>
+                {reszHatarido ? t.meeting.dayModal.reszHataridoProjectLabel : t.meeting.dayModal.hataridoProjectLabel}
+              </div>
               <select className={styles.formSelect} value={projectId} onChange={e => setProjectId(e.target.value)}>
                 <option value="">—</option>
                 {(visibleProjects ?? overview.projects).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </div>
+            {/* A NÉV csak a részhatáridőnél kell: abból több is van egy projekten,
+                és csak a név különbözteti meg őket. */}
+            {reszHatarido && (
+              <div className={styles.formRow}>
+                <div className={styles.formLabel}>{t.meeting.dayModal.reszHataridoNameLabel}</div>
+                <input
+                  className={styles.formInput}
+                  value={label}
+                  onChange={e => setLabel(e.target.value)}
+                  placeholder={t.meeting.dayModal.reszHataridoPlaceholder}
+                />
+              </div>
+            )}
           </>
         )}
         {tab === 'legter' && (
@@ -3437,7 +3761,7 @@ function DayModal({
 function ExistingAnnotationsList({
   kind, records, projects, editingId, onEdit, onNewClick, onDelete,
 }: {
-  kind: 'hatarido' | 'legter';
+  kind: 'hatarido' | 'resz_hatarido' | 'legter';
   records: DashboardDayAnnotation[];
   projects: DashboardProject[];
   editingId: string | null;
@@ -3457,7 +3781,11 @@ function ExistingAnnotationsList({
         textTransform: 'uppercase', letterSpacing: '0.05em',
         marginBottom: 6, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       }}>
-        <span>{kind === 'hatarido' ? t.meeting.existingList.hataridoHeader(records.length) : t.meeting.existingList.legterHeader(records.length)}</span>
+        <span>{
+          kind === 'hatarido' ? t.meeting.existingList.hataridoHeader(records.length)
+          : kind === 'resz_hatarido' ? t.meeting.existingList.reszHataridoHeader(records.length)
+          : t.meeting.existingList.legterHeader(records.length)
+        }</span>
         {editingId !== null && (
           <button
             type="button"
@@ -3482,7 +3810,10 @@ function ExistingAnnotationsList({
               background: isEditing ? '#fef3c7' : 'transparent',
             }}>
               <span style={{ flex: 1, fontSize: 12 }}>
-                {p ? p.name : '—'}
+                {/* Részhatáridőből több is lehet ugyanazon a projekten ugyanazon
+                    a napon — a projektnév önmagában nem különbözteti meg őket,
+                    a felhasználó által adott NÉV viszont igen. */}
+                {kind === 'resz_hatarido' ? (r.label || (p ? p.name : '—')) : (p ? p.name : '—')}
                 {kind === 'legter' && r.endDate && r.endDate.slice(0, 10) !== r.date.slice(0, 10) && (
                   <span style={{ color: 'var(--muted)', marginLeft: 4 }}>· {r.date.slice(0, 10)} → {r.endDate.slice(0, 10)}</span>
                 )}
@@ -3693,6 +4024,25 @@ function NewTaskModal({
   const [saving, setSaving] = useState(false);
   const isTemplateMode = !!templateContext;
 
+  // Projekt-kereső: sok tucat projekt közül a legördülő önmagában használhatatlan.
+  // A beírt szöveg szűri a listát; ha egyetlen találat marad, magától kiválasztódik.
+  const [projektKereso, setProjektKereso] = useState('');
+  const szurtProjektek = useMemo(() => {
+    const q = projektKereso.trim().toLowerCase();
+    if (!q) return overview.projects;
+    return overview.projects.filter(p => p.name.toLowerCase().includes(q));
+  }, [overview.projects, projektKereso]);
+  useEffect(() => {
+    if (szurtProjektek.length === 0) return;
+    setForm(f => (szurtProjektek.some(p => p.id === f.projectId) ? f : { ...f, projectId: szurtProjektek[0].id }));
+  }, [szurtProjektek]);
+
+  // Felelős: a legtöbb task-típusnál KÖTELEZŐ. Felelős nélkül a task létrejönne,
+  // de a Projekt Mapen — ami emberek szerint csoportosít — sehol nem jelenne meg,
+  // ezért a felhasználó azt látja, hogy „a mentés nem csinál semmit".
+  const felelosKell = !isUnassignedTaskType(taskTypes, form.taskType);
+  const hianyzikFelelos = felelosKell && !form.assignedTo;
+
   // Same busy-on-day map as the edit modal — flag conflicting people in the picker.
   const busyMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -3772,6 +4122,10 @@ function NewTaskModal({
 
   async function save(continueChain: boolean = false) {
     if (!form.projectId || !form.title.trim()) return;
+    if (hianyzikFelelos) {
+      toast.error(nm.whoRequired);
+      return;
+    }
     // Hétvége szabály: csak 'gepido' task mehet szombatra/vasárnapra.
     const startDow = parseDate(form.startDate).getDay();
     if ((startDow === 0 || startDow === 6) && form.taskType !== 'gepido') {
@@ -3824,8 +4178,12 @@ function NewTaskModal({
     }
   }
 
+  // A háttérre kattintás NEM zár be: egy félrekattintás eddig elvitte a már
+  // beírt teendőt. Bezárni az ×-szel vagy Esc-cel lehet.
+  useEscZaras(onClose);
+
   return (
-    <div className={styles.modalBg} onClick={onClose}>
+    <div className={styles.modalBg}>
       <div
         className={styles.modal}
         onClick={e => e.stopPropagation()}
@@ -3854,9 +4212,26 @@ function NewTaskModal({
 
         <div className={styles.formRow}>
           <div className={styles.formLabel}>{nm.projectLabel}</div>
-          <select className={styles.formSelect} value={form.projectId} onChange={e => setForm(f => ({ ...f, projectId: e.target.value }))}>
-            {overview.projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <input
+            className={styles.formInput}
+            value={projektKereso}
+            onChange={e => setProjektKereso(e.target.value)}
+            placeholder={nm.projectSearchPh}
+            style={{ marginBottom: 6 }}
+            autoFocus
+          />
+          {szurtProjektek.length === 0 ? (
+            <div style={{ fontSize: 12, color: '#b91c1c' }}>{nm.projectNoMatch}</div>
+          ) : (
+            <>
+              <select className={styles.formSelect} value={form.projectId} onChange={e => setForm(f => ({ ...f, projectId: e.target.value }))}>
+                {szurtProjektek.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                {nm.projectMatchCount(szurtProjektek.length, overview.projects.length)}
+              </div>
+            </>
+          )}
         </div>
 
         <div className={styles.formRow}>
@@ -3921,6 +4296,9 @@ function NewTaskModal({
               </span>
             )}
           </div>
+          {hianyzikFelelos && (
+            <div style={{ fontSize: 11, color: '#b91c1c', marginTop: 2 }}>{nm.whoRequired}</div>
+          )}
         </div>
 
         {/* További érintettek — segítők (helpers). A felelős mellett további
@@ -3969,7 +4347,7 @@ function NewTaskModal({
                 type="button"
                 className={styles.saveBtn}
                 onClick={() => save(false)}
-                disabled={saving || !form.title.trim() || !form.projectId}
+                disabled={saving || !form.title.trim() || !form.projectId || hianyzikFelelos}
                 style={{ flex: 1 }}
                 title={nm.onlyTaskTitle}
               >
@@ -3979,7 +4357,7 @@ function NewTaskModal({
                 type="button"
                 className={styles.saveBtn}
                 onClick={saveAsTemplate}
-                disabled={saving || !form.title.trim() || !form.projectId}
+                disabled={saving || !form.title.trim() || !form.projectId || hianyzikFelelos}
                 style={{ flex: 1.4, background: '#f59e0b' }}
                 title={nm.saveAsTemplateTitle}
               >
@@ -3992,7 +4370,7 @@ function NewTaskModal({
                 type="button"
                 className={styles.saveBtn}
                 onClick={() => save(true)}
-                disabled={saving || !form.title.trim() || !form.projectId}
+                disabled={saving || !form.title.trim() || !form.projectId || hianyzikFelelos}
                 title={nm.createAndContinueTitle}
                 style={{ flex: 1, background: '#0284c7' }}
               >
@@ -4002,7 +4380,7 @@ function NewTaskModal({
                 type="button"
                 className={styles.saveBtn}
                 onClick={() => save(false)}
-                disabled={saving || !form.title.trim() || !form.projectId}
+                disabled={saving || !form.title.trim() || !form.projectId || hianyzikFelelos}
                 style={{ flex: 1 }}
               >
                 {saving ? nm.creating : nm.create}
@@ -4013,6 +4391,15 @@ function NewTaskModal({
       </div>
     </div>
   );
+}
+
+/** Esc-re bezárás. A háttérre kattintás szándékosan NEM zár (adatvesztés). */
+function useEscZaras(onClose: () => void) {
+  useEffect(() => {
+    const kezelo = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', kezelo);
+    return () => window.removeEventListener('keydown', kezelo);
+  }, [onClose]);
 }
 
 /* ── SIDE PANEL ────────────────────────────────────────── */
@@ -4464,7 +4851,7 @@ function ProjectModal({
   onClose: () => void;
   onArchived: () => void;
 }) {
-  type ProjectTab = 'overview' | 'contract' | 'worksheet' | 'quote';
+  type ProjectTab = 'overview' | 'location' | 'contract' | 'worksheet' | 'quote';
   const [tab, setTab] = useState<ProjectTab>('overview');
   const [saving, setSaving] = useState(false);
   const [name, setName] = useState(project.name);
@@ -4525,6 +4912,7 @@ function ProjectModal({
 
   const tabs: Array<{ id: ProjectTab; label: string }> = [
     { id: 'overview',  label: 'Áttekintés' },
+    { id: 'location', label: 'Helyszín' },
     { id: 'contract', label: 'Szerződés' },
     { id: 'worksheet', label: 'Munkalap' },
     { id: 'quote',    label: 'Árajánlat' },
@@ -4538,7 +4926,16 @@ function ProjectModal({
             <div className={styles.modalSub}>Projekt</div>
             <div className={styles.modalTitle}>{name}</div>
           </div>
-          <button type="button" className={styles.closeBtn} onClick={onClose}>×</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            {/* Diszkréten: ki importálta a pályázatból (visszakövethetőség). */}
+            {project.importalta && (
+              <span data-testid="importalta" title={`Pályázatból importálta: ${project.importalta}`}
+                style={{ fontSize: 10.5, color: 'var(--muted)', opacity: 0.75, whiteSpace: 'nowrap' }}>
+                import by {project.importalta}
+              </span>
+            )}
+            <button type="button" className={styles.closeBtn} onClick={onClose}>×</button>
+          </div>
         </div>
 
         <div className={styles.chipList} style={{ marginBottom: 12 }}>
@@ -4712,6 +5109,9 @@ function ProjectModal({
           </>
         )}
 
+        {tab === 'location' && (
+          <ProjectLocationPanel projectId={project.id} />
+        )}
         {tab === 'contract' && (
           <>
             <WorkflowTabHeader kind="contract" state={workflowState} />
@@ -4725,17 +5125,19 @@ function ProjectModal({
             </DocPanelCollapsed>
           </>
         )}
+        {/* Munkalap — a KÖZÖS `WorksheetPanel` fut itt is, kompakt módban.
+            Korábban a `ProjectQuickDocPanel` volt, aminek az elrendezése tört
+            (fájlnév és méret egymásra csúszott), és nem mutatta a generált
+            munkalapokat, csak a feltöltötteket. Így a projekt Munkalapok fülén
+            és itt UGYANAZ látszik. */}
         {tab === 'worksheet' && (
           <>
             <WorkflowTabHeader kind="worksheet" state={workflowState} />
-            <DocPanelCollapsed>
-              <ProjectQuickDocPanel
-                projectId={project.id}
-                kind="worksheet"
-                docs={filterQuickDocs(quickDocs, 'worksheet')}
-                onMutate={() => mutateQuickDocs()}
-              />
-            </DocPanelCollapsed>
+            <WorksheetPanel
+              projectId={project.id}
+              compact
+              onGoToQuote={() => setTab('quote')}
+            />
           </>
         )}
         {tab === 'quote' && (
@@ -5274,6 +5676,10 @@ export function MeetingView({
   const [newTaskTemplateContext, setNewTaskTemplateContext] = useState<{ fromTaskTitle: string; offsetDays: number } | undefined>(undefined);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const [newPingOpen, setNewPingOpen] = useState(false);
+  const [rozikaOpen, setRozikaOpen] = useState(false);
+  // Rozika gombja csak akkor látszik, ha a szerveren be van állítva a kinyerő
+  // ÉS a felhasználónak van javaslattevő joga (különben a lekérdezés 403).
+  const rozika = useRozikaAllapot();
   // Egyszerre csak egy PingMarker popover lehet nyitva — a stack-helő
   // ablakok elkerülése + outside-click close érdekében a state itt fent
   // (MeetingView) van és propagálódik le a ProjectRow-ig.
@@ -5374,7 +5780,7 @@ export function MeetingView({
   // Így a projektenkénti task-tömb tartalma referenciailag egyezik minden ÉRINTETLEN
   // projektnél → plane-cache-hit → ProjectRow allFlatTasks memo-hit → nincs
   // cascade re-render 24/25 sornál. Csak az érintett 1-2 plane épül újra.
-  const planesCacheRef = useRef<Map<string, { tasks: DashboardTask[]; plane: ProjectLane }>>(new Map());
+  const planesCacheRef = useRef<Map<string, { project: DashboardProject; tasks: DashboardTask[]; plane: ProjectLane }>>(new Map());
   const planes = useMemo(
     () => {
       if (!overview) return [];
@@ -5388,7 +5794,7 @@ export function MeetingView({
       }
 
       const prev = planesCacheRef.current;
-      const next = new Map<string, { tasks: DashboardTask[]; plane: ProjectLane }>();
+      const next = new Map<string, { project: DashboardProject; tasks: DashboardTask[]; plane: ProjectLane }>();
 
       const all: ProjectLane[] = overview.projects.map((project, idx) => {
         const projectTasks = tasksByProjectId.get(project.id) ?? [];
@@ -5397,8 +5803,11 @@ export function MeetingView({
         // Cache-hit: cached.tasks referenciák egyeznek az új projectTasks-szel.
         // Optimistic-mutate ezt biztosítja az érintetlen projekteknél. Az érintett
         // projektnél a húzott task új objref-fel jön → cache-miss → rebuild.
+        // A projekt maga is egyezzen: különben a projekt adatainak változása
+        // (név, Iroda/Művelet, érték) nem jelenne meg a sorban.
         if (
           cached
+          && cached.project === project
           && cached.tasks.length === projectTasks.length
           && cached.tasks.every((t, i) => t === projectTasks[i])
         ) {
@@ -5407,7 +5816,7 @@ export function MeetingView({
         }
 
         const plane = buildSingleProjectLane(project, projectTasks, idx);
-        next.set(project.id, { tasks: projectTasks, plane });
+        next.set(project.id, { project, tasks: projectTasks, plane });
         return plane;
       });
 
@@ -5821,6 +6230,16 @@ export function MeetingView({
           a 3 gomb bal széle igazítva, a jobb szél a tartalom hosszával lépcsőzik.
           Legkeskenyebb felül (Új harang), legszélesebb alul (Új projekt). */}
       <div className={styles.fab} style={{ alignItems: 'flex-start' }}>
+        {rozika.bekapcsolva && (
+          <button
+            type="button"
+            onClick={() => setRozikaOpen(true)}
+            className={clsx(styles.fabBtn, styles.fabBtnSecondary)}
+            title="Meeting-átirat beillesztése: Rozika piszkozat-feladatokat javasol"
+          >
+            🎧 Rozika
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setNewPingOpen(true)}
@@ -5891,6 +6310,14 @@ export function MeetingView({
         />
       )}
       {newProjectOpen && <NewProjectModal onClose={() => setNewProjectOpen(false)} onSaved={() => mutate()} />}
+      {rozikaOpen && (
+        <RozikaAtiratModal
+          overview={overview}
+          modell={rozika.modell}
+          onClose={() => setRozikaOpen(false)}
+          onSaved={() => mutate()}
+        />
+      )}
       {newPingOpen && (
         <NewPingModal
           overview={overview}
@@ -5963,8 +6390,11 @@ function NewProjectModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
     }
   }
 
+  // A háttérre kattintás NEM zár be (elveszne a beírt adat); × vagy Esc zár.
+  useEscZaras(onClose);
+
   return (
-    <div className={styles.modalBg} onClick={onClose}>
+    <div className={styles.modalBg}>
       <form className={styles.modal} onClick={e => e.stopPropagation()} onSubmit={save}>
         <div className={styles.modalHead}>
           <div>

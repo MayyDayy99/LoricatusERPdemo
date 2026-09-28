@@ -44,6 +44,8 @@ export interface DashboardTask {
    *  emeli/csökkenti — alapból 0, ekkor 2 időben átfedő task egymáson lóg
    *  (push-physics ezt drag során szétpasszolja). */
   laneIndex?: number;
+  /** Számlázás / Várható kifizetés task összege (Ft) — a vezetői riporthoz. */
+  osszeg?: number | null;
 }
 
 export interface TaskDurationRevision {
@@ -76,7 +78,18 @@ export interface DashboardProject {
   /** A megrendelő-customer FK — a ProjectModal Áttekintés tab-on a customer-
    *  adatokat ezen az ID-n keresztül fetcheli. */
   customerId?: string;
+  /** Iroda vagy Művelet — a heti vezetői riport két blokkja. */
+  unit?: ProjektEgyseg;
+  /** A projekt értéke (Ft): árazáskor az ajánlati ár, nyerés után a szerződéses. */
+  valueHuf?: number | null;
+  /** Az iroda-szakasz: árazás → ajánlat kint → nyert / elveszett. */
+  officeStatus?: IrodaStatusz;
+  /** Pályázatból importált projektnél: az importáló keresztneve. */
+  importalta?: string | null;
 }
+
+export type ProjektEgyseg = 'iroda' | 'muvelet';
+export type IrodaStatusz = 'arazas' | 'ajanlat_kint' | 'nyert' | 'elveszett';
 
 export interface DashboardPerson {
   id: string;
@@ -96,7 +109,12 @@ export interface DashboardEquipment {
   note?: string;
 }
 
-export type DayAnnotationType = 'munkaszunet' | 'szabadsag' | 'szerviz' | 'hatarido' | 'legter';
+/**
+ * `resz_hatarido`: a projekten BELÜLI mérföldkő (sárga). A `hatarido` a projekt
+ * végső dátuma (piros) — abból egy van, részhatáridőből projektenként több is.
+ */
+export type DayAnnotationType =
+  'munkaszunet' | 'szabadsag' | 'szerviz' | 'hatarido' | 'resz_hatarido' | 'legter';
 
 export interface DashboardDayAnnotation {
   id: string;
@@ -163,8 +181,11 @@ export function useDashboardOverview(from?: string, to?: string, options: UseDas
   const pauseRef = useRef(pauseRevalidation);
   pauseRef.current = pauseRevalidation;
 
-  // A hívó (MeetingView) rövid időre elnyelheti a saját művelete által kiváltott
-  // SSE-echot (plan_task.updated). A demóban nincs élő SSE (IS_DEMO-guard), no-op.
+  // P4 (#5): SSE task-event elnyelő ablak drop UTÁN. Az optimistic-mutate a
+  // drop pillanatában a helyes állapotot mutatja; a backend PATCH-utáni SSE-echo
+  // (plan_task.updated) egy másodperccel később MÉG EGY teljes refetch-et
+  // triggerezne, ami az egész MeetingView-t újrarenderelné. A `suppressSseUntil`
+  // referencián keresztül a hívó (MeetingView) rövid időre (~3s) elnyelheti ezt.
   const suppressSseUntilRef = useRef<number>(0);
   const drainSseUntil = (untilMs: number) => {
     if (untilMs > suppressSseUntilRef.current) suppressSseUntilRef.current = untilMs;
@@ -189,6 +210,9 @@ export function useDashboardOverview(from?: string, to?: string, options: UseDas
     // Drag közben skip — különben a saját optimistic update-ünket overrideolná
     // a stale DB-állapotot mutató SSE-trigger refetch.
     if (pauseRef.current) return;
+    // P4 (#5): Drop-utáni elnyelő ablakban is skipelünk — a saját optimistic
+    // update-ünk már a helyes állapotot mutatja, a plan_task.* SSE-echo egy
+    // teljes refetch-et triggerezne, ami a teljes MeetingView-t újraszámoltatná.
     if (type.startsWith('plan_task.') && Date.now() < suppressSseUntilRef.current) return;
     mutate();
     if (type.startsWith('plan_task.') || type.startsWith('project.') || type.startsWith('crm-task.')) {
@@ -282,7 +306,16 @@ export async function createPlanTask(input: CreatePlanTaskInput) {
 
 export async function updatePlanTask(
   id: string,
-  patch: Partial<CreatePlanTaskInput> & { status?: DashboardTaskStatus; durationChangeReason?: string },
+  patch: Partial<CreatePlanTaskInput> & {
+    status?: DashboardTaskStatus;
+    /**
+     * Az állapot, amit a felhasználó a döntéskor LÁTOTT. Ha a feladat közben
+     * máshová került (pl. valaki lezárta), a szerver 409-et ad, és nem írja
+     * felül a másik döntést. Állapotváltáskor MINDIG küldd.
+     */
+    expectedStatus?: DashboardTaskStatus;
+    durationChangeReason?: string;
+  },
 ) {
   const res = await apiClient.patch(`/dashboard/tasks/${id}`, patch);
   return res.data;

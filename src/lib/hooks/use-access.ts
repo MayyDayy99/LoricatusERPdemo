@@ -25,7 +25,13 @@ export type Permission =
   | 'crm.pipelines'
   | 'crm.write'
   | 'project-map.write'
-  | 'users.manage';
+  | 'project.location.write'
+  | 'users.manage'
+  | 'project.commercial'
+  | 'executive-report.view'
+  | 'executive-report.manage'
+  | 'market-report.view'
+  | 'market-report.manage';
 
 /** UI-permission → backend permission-stringek listája (OR-eltetve). */
 const MAPPING: Record<Permission, string[]> = {
@@ -35,7 +41,17 @@ const MAPPING: Record<Permission, string[]> = {
   'crm.pipelines':     ['pipelines:update', 'pipelines:create'],
   'crm.write':         ['customers:create', 'customers:update', 'quotes:create', 'quotes:update'],
   'project-map.write': ['project-map:update', 'project-map:create'],
+  // A helyszin a projekt adata, ezert a projekt-modositas joga dont rola —
+  // nem vezetunk be kulon jogot, amit kulon karban kellene tartani.
+  'project.location.write': ['projects:update'],
   'users.manage':      ['users:update', 'users:create', 'users:delete'],
+  // A projekt üzleti adatai (Iroda/Művelet, érték, státusz, pénz-taskok
+  // összege) és a heti vezetői riport — a projektvezető és fölötte.
+  'project.commercial':        ['projects:commercial'],
+  'executive-report.view':     ['executive-report:read'],
+  'executive-report.manage':   ['executive-report:manage'],
+  'market-report.view':        ['market-report:read'],
+  'market-report.manage':      ['market-report:manage'],
 };
 
 interface MePermissions {

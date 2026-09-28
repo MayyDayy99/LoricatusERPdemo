@@ -240,8 +240,12 @@ export type QuoteBulkOp = 'stateToDraft' | 'tagAdd' | 'tagRemove' | 'delete';
 export interface QuoteBulkPatch {
   /** Új állapot (csak DRAFT-ra engedélyezett a backend-en — Sprint-1-spec). */
   state?: QuoteState;
-  /** Tag value (a backend single-string a Sprint-1 DTO szerint). */
-  tag?: string;
+  /**
+   * Címke-patch. Legacy `string` = hozzáadás (a régi hívók miatt megmarad);
+   * az explicit `{ mode, value }` alak kell az ELTÁVOLÍTÁSHOZ — enélkül a
+   * "Címke eltávolítása" művelet valójában hozzáadta a címkét.
+   */
+  tag?: string | { mode: 'add' | 'remove'; value: string };
 }
 
 export interface QuoteBulkResult {
@@ -272,6 +276,12 @@ export interface QuoteDetail extends QuoteListItem {
   scopeDescription?: string;
   projectLocation?: string;
   generatedStorageKey?: string;
+  /**
+   * A szerver ide írja a PDF-generálás VÉGLEGES hibáját (a Bull-job
+   * @OnQueueFailed handlere). Enélkül a felhasználó soha nem tudta meg, hogy a
+   * háttérben elbukott a generálás — a felület csak „nincs PDF"-et mutatott.
+   */
+  metadata?: { pdfError?: { at?: string; message?: string } } & Record<string, unknown>;
   customer?: { id: string; firstName: string; lastName: string; company?: string };
   lineItems?: Array<{
     id: string;
@@ -303,11 +313,23 @@ export async function generateQuotePdf(id: string) {
 }
 
 export async function downloadQuotePdf(id: string, quoteNumber?: string) {
-  const res = await apiClient.get(`/quotes/${id}/pdf`, { responseType: 'blob' });
-  const url = URL.createObjectURL(res.data);
+  // A backend NEM streameli vissza a PDF-et — csak visszaad egy signed
+  // Azure Blob URL-t `{ url }` JSON-ban. Régen a válasz `responseType: 'blob'`-bal
+  // került lementésre, így a `{"url":"..."}` JSON kb. 100 byte-ként mentődött el
+  // `.pdf`-ként → Acrobat "sérült/nem támogatott" hibát dobott. Most a `url`-ről
+  // navigálunk el, a signed URL `Content-Disposition: attachment; filename=…`
+  // header-t is ad vissza (l. Azure Storage provider), így a browser rendesen
+  // letölti a helyes fájlnévvel.
+  const res = await apiClient.get<{ url: string }>(`/quotes/${id}/pdf`);
+  const url = res.data?.url;
+  if (!url) {
+    throw new Error('A szerver nem adott letöltési URL-t');
+  }
   const a = document.createElement('a');
   a.href = url;
   a.download = `${quoteNumber ?? id}.pdf`;
+  a.rel = 'noopener noreferrer';
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  document.body.removeChild(a);
 }

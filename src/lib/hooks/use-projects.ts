@@ -1,12 +1,21 @@
 import useSWR from 'swr';
 import { apiClient } from '../api-client';
 
+/**
+ * A projekt helyszine — MINDEN mezo opcionalis.
+ *
+ * A reszleges helyszin valodi allapot: a cimet gyakran elobb tudjuk, mint a
+ * koordinatat (es a terkepre kattintva forditva). A szerver ugyanezt engedi.
+ *
+ * FIGYELEM: a `PATCH /projects/:id` a `location`-t EGYBEN csereli. Aki csak
+ * egy mezot modosit, annak a tobbit is vissza kell kuldenie, kulonben elvesz.
+ */
 export interface ProjectLocation {
-  latitude: number;
-  longitude: number;
-  address: string;
-  city: string;
-  country: string;
+  latitude?: number;
+  longitude?: number;
+  address?: string;
+  city?: string;
+  country?: string;
 }
 
 export interface Project {
@@ -37,10 +46,11 @@ export function useProjects(filter?: { categoryId?: string | null; includeArchiv
   if (filter?.categoryId === null) params.set('categoryId', 'null');
   else if (filter?.categoryId) params.set('categoryId', filter.categoryId);
   if (filter?.includeArchived) params.set('includeArchived', 'true');
-  // Default 200 — a MiniCRM-szobákban 100+ projekt is lehet. A backend
-  // findAll() Math.min(take, 200)-szal hard-cap-eli, így nem fogyaszt el extra
-  // memóriát. Lapozós UI helyett a szoba-lista végtelen scroll-hoz nyúlik.
-  params.set('take', String(filter?.take ?? 200));
+  // Default 5000 — a nagy tenantoknál 3000+ projekt van, a `/projects` oldalnak
+  // az összeset látnia kell (nincs pagination). A backend cap is 5000 (l.
+  // projects.service findAll). Ha később a projekt-szám 5000 fölé megy, akkor
+  // szükséges lesz a `/projects` oldalon pagination bevezetése.
+  params.set('take', String(filter?.take ?? 5000));
   const qs = params.toString();
   const url = `/projects?${qs}`;
   const { data, error, isLoading, mutate } = useSWR(url, fetcher);
@@ -250,7 +260,7 @@ export async function deleteTaskTemplate(id: string): Promise<void> {
 // ── Adatlap-séma: dobozok + egyedi mezők ────────────────────────────────────
 
 export type CustomFieldType =
-  | 'text' | 'textarea' | 'number' | 'date' | 'boolean' | 'select'
+  | 'text' | 'textarea' | 'number' | 'date' | 'datetime' | 'boolean' | 'select'
   | 'multiselect' | 'file' | 'user';
 
 /** A `file` típusú mező értéke a projekt customFieldsData JSONB-jében.

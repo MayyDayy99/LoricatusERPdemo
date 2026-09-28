@@ -134,9 +134,13 @@ function SearchForm({
     setSelectedProjectId(id);
     if (!id) return;
     const project = projects.find((p) => p.id === id);
-    if (project?.location) {
-      setLat(project.location.latitude.toFixed(6));
-      setLng(project.location.longitude.toFixed(6));
+    // A helyszin lehet reszleges (csak cim). A `location` letere szurni itt
+    // futasideju hibat okozna: `undefined.toFixed(6)`.
+    const lat = project?.location?.latitude;
+    const lng = project?.location?.longitude;
+    if (typeof lat === 'number' && typeof lng === 'number') {
+      setLat(lat.toFixed(6));
+      setLng(lng.toFixed(6));
     }
   }
 
