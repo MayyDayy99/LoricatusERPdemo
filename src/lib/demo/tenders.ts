@@ -50,11 +50,19 @@ function toOpportunity(s: OppSpec): any {
 const OPPS = SPECS.map(toOpportunity);
 
 export function opportunitiesList(query: URLSearchParams): any {
-  const tier = query.get('tier'); const status = query.get('status'); const search = (query.get('search') || '').toLowerCase();
+  const tier = query.get('tier'); const status = query.get('status');
+  const phase = query.get('phase'); const comp = query.get('competence');
+  const search = (query.get('search') || '').toLowerCase();
+  const csv = (v: string | null) => (v ? new Set(v.split(',').filter(Boolean)) : null);
+  const tierSet = csv(tier); const statusSet = csv(status); const phaseSet = csv(phase);
   let items = OPPS.slice();
-  if (tier) items = items.filter((o) => o.tier === tier);
-  if (status) items = items.filter((o) => o.status === status);
+  if (tierSet) items = items.filter((o) => o.tier && tierSet.has(o.tier));
+  if (statusSet) items = items.filter((o) => statusSet.has(o.status));
+  if (phaseSet) items = items.filter((o) => phaseSet.has(o.phase));
+  if (comp === 'alvallalkozoi') items = items.filter((o) => o.bidRecommendation === 'low_priority');
   if (search) items = items.filter((o) => o.title.toLowerCase().includes(search) || (o.buyer || '').toLowerCase().includes(search));
+  // Loricatus Score szerint csökkenő
+  items = items.slice().sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
   return { items, total: items.length, page: 1, limit: 50 };
 }
 
