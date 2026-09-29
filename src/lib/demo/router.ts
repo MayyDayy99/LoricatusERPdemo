@@ -237,6 +237,7 @@ const special: Handler = (m, parts, query, body) => {
   if (path === 'tenders/watch-profiles' && m === 'get') return ok(watchProfilesTenders());
   if (path === 'tenders' && m === 'get') return ok(tendersList());
   if (path === 'procurement/market/results' && m === 'get') return ok(marketResults());
+  if (path === 'procurement/outcomes/missing' && m === 'get') return ok({ tendersWithoutOutcome: [], outcomesWithoutPrice: [] });
   if (path === 'procurement/outcomes' && m === 'get') return ok(outcomesList());
   if (path === 'procurement/market-report' && m === 'get') return ok(marketReport());
 
