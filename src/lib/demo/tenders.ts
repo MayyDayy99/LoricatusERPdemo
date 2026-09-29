@@ -202,3 +202,13 @@ export function tendersList(): any {
 export function haviBeallitas(): any {
   return { enabled: true, nap: 1, perc: 480, cimzettek: [{ email: 'vezetoseg@loricatus.hu', nev: 'Vezetőség', feloldottEmail: 'vezetoseg@loricatus.hu', feloldottNev: 'Vezetőség' }] };
 }
+
+export function marketResults(): any { return { items: [], total: 0, page: 1, limit: 25 }; }
+export function outcomesList(): any { return { items: [], total: 0, page: 1, limit: 25 }; }
+export function marketReport(): any {
+  return {
+    month: ymd(0).slice(0, 7), generatedAt: daysFromNow(0),
+    summary: { results: 128, buyers: 46, avgOffers: 3.4, ownWins: 6 },
+    sections: [], html: '<div style="font-family:Inter,Arial,sans-serif;padding:16px"><h2>Havi piaci jelentés</h2><p>128 lezárult eljárás, 46 kiíró, átlag 3,4 ajánlat/eljárás. Loricatus: 6 nyertes.</p></div>',
+  };
+}
