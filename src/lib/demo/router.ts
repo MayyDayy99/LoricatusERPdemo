@@ -19,6 +19,7 @@ import {
   opportunitiesList, opportunityDetail, procurementSummary, watchProfilesTenders,
   watchProfileStats, procurementSources, procurementMarket, procurementScoring,
   analysisStatus, tendersList, haviBeallitas, marketResults, outcomesList, marketReport,
+  marketReportEmail, marketReportArchive,
 } from './tenders';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -240,6 +241,8 @@ const special: Handler = (m, parts, query, body) => {
   if (path === 'procurement/outcomes/missing' && m === 'get') return ok({ tendersWithoutOutcome: [], outcomesWithoutPrice: [] });
   if (path === 'procurement/outcomes' && m === 'get') return ok(outcomesList());
   if (path === 'procurement/market-report' && m === 'get') return ok(marketReport());
+  if (path === 'procurement/market-report/email' && m === 'get') return ok(marketReportEmail());
+  if (path === 'procurement/market-report/archive' && m === 'get') return ok(marketReportArchive());
 
   // E-mail sablonok (Adminisztráció → E-mail sablonok) — 25 autentikus sablon
   if (path === 'mail-templates' && m === 'get') {

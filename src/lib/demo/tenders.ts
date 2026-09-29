@@ -206,9 +206,28 @@ export function haviBeallitas(): any {
 export function marketResults(): any { return { items: [], total: 0, page: 1, limit: 25 }; }
 export function outcomesList(): any { return { items: [], total: 0, page: 1, limit: 25 }; }
 export function marketReport(): any {
+  const ho = ymd(0).slice(0, 7);
   return {
-    month: ymd(0).slice(0, 7), generatedAt: daysFromNow(0),
-    summary: { results: 128, buyers: 46, avgOffers: 3.4, ownWins: 6 },
-    sections: [], html: '<div style="font-family:Inter,Arial,sans-serif;padding:16px"><h2>Havi piaci jelentés</h2><p>128 lezárult eljárás, 46 kiíró, átlag 3,4 ajánlat/eljárás. Loricatus: 6 nyertes.</p></div>',
+    adat: { honap: ho, megjeloles: new Date().toLocaleDateString('hu-HU', { year: 'numeric', month: 'long' }) },
+    elonezet: true, allapot: 'kesz', elkuldve: null, keziKuldes: null, hiba: null,
   };
+}
+
+export function marketReportEmail(): any {
+  const html = '<div style="font-family:Inter,Arial,sans-serif;max-width:640px;margin:0 auto;color:#111">'
+    + '<div style="background:#12331f;color:#fff;padding:20px 26px;border-radius:12px 12px 0 0"><div style="font-size:13px;letter-spacing:.14em;opacity:.8">LORICATUS · HAVI PIACI JELENTÉS</div><h1 style="margin:6px 0 0;font-size:22px">Közbeszerzési piac — havi összefoglaló</h1></div>'
+    + '<div style="border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px;padding:24px">'
+    + '<p style="color:#4b5563;line-height:1.55">A hónapban <b>128 lezárult eljárás</b> a figyelt CPV-körben, 46 kiírótól, átlag 3,4 ajánlattevővel. A Loricatus <b>6 nyertes</b> eljárással zárt (180 M Ft).</p>'
+    + '<h3 style="margin:18px 0 8px">Legaktívabb kiírók</h3><p style="color:#4b5563">MÁV Zrt. (18 eljárás), NIF Zrt. (11), Miskolc MJV (7).</p>'
+    + '<h3 style="margin:18px 0 8px">Fő versenytársak</h3><p style="color:#4b5563">Geoplan Mérnöki Kft. (14 nyerés), DroneSurvey Hungary Zrt. (9).</p>'
+    + '<p style="color:#9ca3af;font-size:12px;margin-top:22px;border-top:1px solid #f3f4f6;padding-top:14px">Loricatus Group Kft. · Automatikus havi piaci jelentés.</p></div></div>';
+  return { subject: 'Loricatus — havi közbeszerzési piaci jelentés', html, text: 'Havi piaci jelentés: 128 lezárult eljárás, 46 kiíró, a Loricatus 6 nyertes eljárással.' };
+}
+
+export function marketReportArchive(): any[] {
+  return [1, 2, 3].map((m) => {
+    const d = new Date(); d.setMonth(d.getMonth() - m);
+    const ho = d.toISOString().slice(0, 7);
+    return { honap: ho, megjeloles: d.toLocaleDateString('hu-HU', { year: 'numeric', month: 'long' }), allapot: 'elkuldve', elkuldve: d.toISOString(), keziKuldes: null };
+  });
 }
