@@ -67,6 +67,7 @@ export function buildSeed(): Store {
       crmExternalIntegrations: true, workOrdersEnabled: true, droneEnabled: true,
       internalTasksEnabled: true, meetingEnabled: true, fieldReportsEnabled: true,
       miniCrmImportEnabled: true, commissionEnabled: true,
+      tendersEnabled: true,
     },
     metadata: { sidebarPoliciesByRole: {} },
   }];

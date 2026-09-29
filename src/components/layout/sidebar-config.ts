@@ -27,7 +27,7 @@ export type FeatureFlagKey =
   | 'crmExternalIntegrations' | 'workOrdersEnabled'
   | 'droneEnabled' | 'internalTasksEnabled'
   | 'meetingEnabled' | 'fieldReportsEnabled'
-  | 'miniCrmImportEnabled' | 'commissionEnabled';
+  | 'miniCrmImportEnabled' | 'commissionEnabled' | 'tendersEnabled';
 
 export interface NavItem {
   href: string;
@@ -72,6 +72,7 @@ export const ALL_ITEMS: NavItem[] = [
   { href: '/contracts', icon: ScrollText, group: 'sales' },
   { href: '/referrals', icon: UserPlus,   group: 'sales' },
   { href: '/weboldalak', icon: Globe,     group: 'sales' },
+  { href: '/tenders',    icon: FileText,  group: 'sales', beta: true, requiredFeature: 'tendersEnabled' },
 
   // CRM (5) — /pipelines + /activities eltavolitva (DiMOP egyszerusites: pipeline-config az admin alatt, activity-log DealModal-ban)
   // E-feladat: /customers/merge — duplicate-detection + ugyfél-összevonás eszköz.
@@ -150,6 +151,7 @@ export const NAV_LABELS: Record<string, Record<LocaleCode, string>> = {
   '/pricing':        { hu: 'Árazógép',      en: 'Pricing Engine', it: 'Motore prezzi' },
   '/referrals':      { hu: 'Meghívók',      en: 'Referrals',    it: 'Inviti'        },
   '/weboldalak':     { hu: 'Weboldalak',    en: 'Websites',     it: 'Siti web'      },
+  '/tenders':        { hu: 'Pályázatok',    en: 'Tenders',      it: 'Gare'          },
   '/map':            { hu: 'Térkép',        en: 'Map',          it: 'Mappa'         },
   '/notam':          { hu: 'NOTAM',         en: 'NOTAM',        it: 'NOTAM'         },
   '/uploads':        { hu: 'Feltöltések',   en: 'Uploads',      it: 'Caricamenti'   },

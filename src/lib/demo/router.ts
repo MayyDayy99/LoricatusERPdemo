@@ -15,6 +15,11 @@ import {
   execReport, execEmail, execArchive, execSettings, customFields,
   projectTemplates,
 } from './reports';
+import {
+  opportunitiesList, opportunityDetail, procurementSummary, watchProfilesTenders,
+  watchProfileStats, procurementSources, procurementMarket, procurementScoring,
+  analysisStatus, tendersList, haviBeallitas,
+} from './tenders';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -218,6 +223,19 @@ const special: Handler = (m, parts, query, body) => {
       return ok(tpl ?? projectTemplates()[0]);
     }
   }
+
+  // Pályázatfigyelő (Értékesítés → Pályázatok) — procurement intelligence (szimulált)
+  if (path === 'procurement/opportunities' && m === 'get') return ok(opportunitiesList(query));
+  if (path.match(/^procurement\/opportunities\/[^/]+$/) && m === 'get') return ok(opportunityDetail(parts[2]));
+  if (path === 'procurement/summary' && m === 'get') return ok(procurementSummary());
+  if (path === 'procurement/market' && m === 'get') return ok(procurementMarket());
+  if (path === 'procurement/scoring' && m === 'get') return ok(procurementScoring());
+  if (path === 'procurement/watch-profiles/stats' && m === 'get') return ok(watchProfileStats());
+  if (path === 'procurement/sources' && m === 'get') return ok(procurementSources());
+  if (path === 'procurement/analysis/status' && m === 'get') return ok(analysisStatus());
+  if (path === 'procurement/market-report/settings' && m === 'get') return ok(haviBeallitas());
+  if (path === 'tenders/watch-profiles' && m === 'get') return ok(watchProfilesTenders());
+  if (path === 'tenders' && m === 'get') return ok(tendersList());
 
   // E-mail sablonok (Adminisztráció → E-mail sablonok) — 25 autentikus sablon
   if (path === 'mail-templates' && m === 'get') {

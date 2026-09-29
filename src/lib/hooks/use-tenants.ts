@@ -16,6 +16,9 @@ export interface TenantFeatureFlags {
   fieldReportsEnabled: boolean;
   miniCrmImportEnabled: boolean;
   commissionEnabled: boolean;
+  tendersEnabled: boolean;
+  aiChatEnabled: boolean;
+  customFieldsEnabled: boolean;
 }
 
 export interface SidebarRolePolicy {
